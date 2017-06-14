@@ -38,9 +38,10 @@ use super::types::*;
 /// BFC declaration.
 #[derive(Debug)]
 pub enum BFCDeclaration {
-    Certify(Option<RotationSense>),
+    Certify(RotationSense),
+    NoCertify,
     Rotation(RotationSense),
-    Clip(Option<RotationSense>),
+    Clip(RotationSense),
     NoClip,
     InvertNext,
 }
@@ -49,8 +50,8 @@ pub enum BFCDeclaration {
 #[derive(Debug)]
 pub struct Date {
     pub year: u16,
-    pub month: u8,
-    pub day: u8,
+    pub month: Option<u8>,
+    pub day: Option<u8>,
 }
 
 /// Release.
@@ -69,19 +70,21 @@ pub enum UpdateTag {
 }
 
 /// File officiality.
-#[derive(Debug)]
+#[derive(Debug, Eq, PartialEq)]
 pub enum Officiality {
     LDrawOfficial,
     Unofficial,
 }
 
 /// File contents.
-#[derive(Debug)]
+#[derive(Clone, Copy, Debug)]
 pub enum Contents {
+    Configuration,
     Part,
     Subpart,
     Primitive,
     Primitive48,
+    Primitive8,
     Shortcut,
     File,
     Model,
@@ -104,9 +107,9 @@ pub enum Qualifier {
 #[derive(Debug)]
 pub struct FileType {
     pub officiality: Officiality,
-    pub contents: Contents,
+    pub contents: Option<Contents>,
     pub qualifiers: Vec<Qualifier>,
-    pub update_tag: UpdateTag,
+    pub update_tag: Option<UpdateTag>,
 }
 
 /// History entry author.
@@ -151,6 +154,12 @@ pub enum Meta {
     /// Description.
     Description(String),
 
+    /// Empty declaration,
+    Empty,
+
+    /// File.
+    File(String),
+
     /// File type.
     FileType(FileType),
 
@@ -168,6 +177,9 @@ pub enum Meta {
 
     /// Name.
     Name(String),
+
+    /// No file.
+    NoFile,
 
     /// Pause the drawing.
     Pause,
@@ -189,19 +201,11 @@ pub enum Meta {
 #[derive(Debug)]
 pub enum Statement {
     Meta(Meta),
-    Subfile {
-        color: ColorRef,
-        matrix: Matrix,
-        file: String,
-    },
+    Subfile { color: ColorRef, matrix: Matrix, file: String },
     Line { color: ColorRef, line: Line },
     Triangle { color: ColorRef, triangle: Triangle },
     Quad { color: ColorRef, quad: Quad },
-    OptionalLine {
-        color: ColorRef,
-        line: Line,
-        control_line: Line,
-    },
+    OptionalLine { color: ColorRef, line: Line, control_line: Line },
 }
 
 /// LDraw file.

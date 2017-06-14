@@ -1,3 +1,21 @@
+# ldraw-rust: LDraw models for Rust
+# Copyright (C) 2017  Edgar Gonzàlez i Pellicer
+#
+# This file is part of ldraw-rust.
+#
+# ldraw-rust is free software: you can redistribute it and/or
+# modify it under the terms of the GNU General Public License as
+# published by the Free Software Foundation, either version 3 of the
+# License, or (at your option) any later version.
+#
+# This program is distributed in the hope that it will be useful,
+# but WITHOUT ANY WARRANTY; without even the implied warranty of
+# MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
+# GNU General Public License for more details.
+#
+# You should have received a copy of the GNU General Public License
+# along with this program. If not, see <http://www.gnu.org/licenses/>.
+
 array_layout = "Block"
 array_width = 80
 # chain_indent = "Block"
@@ -6,8 +24,8 @@ closure_block_indent_threshold = 1
 comment_width = 80
 condense_wildcard_suffixes = true
 control_brace_style = "AlwaysSameLine"
-fn_args_density = "Compressed"
-fn_args_layout = "Block"
+fn_args_density = "Tall"
+fn_args_layout = "Visual"
 fn_args_paren_newline = false
 fn_brace_style = "PreferSameLine"
 fn_call_style = "Block"
@@ -35,3 +53,7 @@ struct_variant_width = 80
 tab_spaces = 4
 trailing_comma = "Vertical"
 type_punctuation_density = "Wide"
+
+# Local Variables:
+# coding: utf-8
+# End:

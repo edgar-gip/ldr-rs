@@ -21,6 +21,9 @@
 use na::convert_unchecked;
 use na::core::{Matrix as NAMatrix, MatrixArray};
 use na::core::dimension::U4;
+use phf;
+use regex::Regex;
+use std::f64;
 use std::fmt::Display;
 use std::fs::File;
 use std::io::{BufRead, BufReader, Error as IoError, Result as IoResult};
@@ -37,11 +40,8 @@ pub struct ParseError {
     pub error: String,
 }
 
-/// List of parse errors.
-pub type ParseErrors = Vec<ParseError>;
-
 /// Result of a parsing operation.
-pub type ParseResult<T> = Result<T, ParseErrors>;
+pub type ParseResult<T> = Result<T, Vec<ParseError>>;
 
 /// Internal version of `ParseResult` when at most 1 error is expected.
 type ParseResult1<T> = Result<T, ParseError>;
@@ -105,7 +105,8 @@ fn read_line_is_ok(result: &IoResult<usize>) -> bool {
 }
 
 /// Processes a line of an LDraw file.
-fn process_line(line_number: u32, line: &String)
+fn process_line(line_number: u32,
+                line: &String)
     -> ParseResult1<Option<Statement>> {
     // Split the line into fields.
     let fields: Vec<&str> = line.split(|c| c == ' ' || c == '\t')
@@ -115,43 +116,937 @@ fn process_line(line_number: u32, line: &String)
         return Ok(None);
     }
 
-    // Determine the line type.
-    let line_type = try!(parse_u8(line_number, fields[0]));
-
     // Dispatch according to the line type.
+    let line_type = try!(parse_u8(line_number, fields[0]));
     match line_type {
-        0 => parse_meta_statement(line_number, fields),
-        1 => parse_subfile_statement(line_number, fields),
-        2 => parse_line_statement(line_number, fields),
-        3 => parse_triangle_statement(line_number, fields),
-        4 => parse_quad_statement(line_number, fields),
-        5 => parse_optional_line_statement(line_number, fields),
-        _ => {
-            Err(ParseError {
+            0 => parse_meta_statement(line_number, fields),
+            1 => parse_subfile_statement(line_number, fields),
+            2 => parse_line_statement(line_number, fields),
+            3 => parse_triangle_statement(line_number, fields),
+            4 => parse_quad_statement(line_number, fields),
+            5 => parse_optional_line_statement(line_number, fields),
+            _ => {
+                Err(ParseError {
+                    line_number: line_number,
+                    error: format!("Invalid line type {}", line_type),
+                })
+            },
+        }
+        .map(Some)
+}
+
+/// Maps a function over a container on the Result monad.
+fn map_result_monad<F, I, O, E>(func: F, inputs: I) -> Result<Vec<O>, E>
+    where I: IntoIterator,
+          F: Fn(I::Item) -> Result<O, E> {
+    let mut vec = Vec::new();
+    for input in inputs {
+        vec.push(try!(func(input)));
+    }
+    Ok(vec)
+}
+
+/// Verifies that a field in a line matches a keyword'.
+fn check_field_is(line_number: u32,
+                  field: &str,
+                  keyword: &str)
+    -> ParseResult1<()> {
+    if field != keyword {
+        Err(ParseError {
+            line_number: line_number,
+            error: format!("Found \"{}\" as field where \"{}\" was expected",
+                           field,
+                           keyword),
+        })
+    } else {
+        Ok(())
+    }
+}
+
+/// Verifies that the number of fields in a line is exactly 'n'.
+fn check_fields_eq(line_number: u32,
+                   fields: &Vec<&str>,
+                   n: usize)
+    -> ParseResult1<()> {
+    if fields.len() != n {
+        Err(ParseError {
+            line_number: line_number,
+            error: format!("Line has {} fields: expected {}", fields.len(), n),
+        })
+    } else {
+        Ok(())
+    }
+}
+
+/// Verifies that the number of fields in a line is at least 'n'.
+fn check_fields_ge(line_number: u32,
+                   fields: &Vec<&str>,
+                   n: usize)
+    -> ParseResult1<()> {
+    if fields.len() < n {
+        Err(ParseError {
+            line_number: line_number,
+            error: format!("Line has {} fields: expected at least {}",
+                           fields.len(),
+                           n),
+        })
+    } else {
+        Ok(())
+    }
+}
+
+/// Verifies that the number of fields in a line is at most 'n'.
+fn check_fields_le(line_number: u32,
+                   fields: &Vec<&str>,
+                   n: usize)
+    -> ParseResult1<()> {
+    if fields.len() > n {
+        Err(ParseError {
+            line_number: line_number,
+            error: format!("Line has {} fields: expected at most {}",
+                           fields.len(),
+                           n),
+        })
+    } else {
+        Ok(())
+    }
+}
+
+/// Verifies that a field in a line exists and returns it.
+fn check_field_get<'a>(line_number: u32,
+                       fields: &Vec<&'a str>,
+                       index: usize)
+    -> ParseResult1<&'a str> {
+    if fields.len() < index {
+        Err(ParseError {
+            line_number: line_number,
+            error: format!("Line has {} fields: expected at least {}",
+                           fields.len(),
+                           index),
+        })
+    } else {
+        Ok(fields[index])
+    }
+}
+
+/// Verifies that a field in a line exists and can be parsed.
+fn check_field_get_and<F, O>(line_number: u32,
+                             fields: &Vec<&str>,
+                             index: usize,
+                             parser: F)
+    -> ParseResult1<O>
+    where F: Fn(u32, &str) -> ParseResult1<O> {
+    if fields.len() < index {
+        Err(ParseError {
+            line_number: line_number,
+            error: format!("Line has {} fields: expected at least {}",
+                           fields.len(),
+                           index),
+        })
+    } else {
+        parser(line_number, fields[index])
+    }
+}
+
+/// Parses an 8-bit integer.
+fn parse_u8(line_number: u32, field: &str) -> ParseResult1<u8> {
+    u8::from_str_radix(field, 10).map_err(|err: ParseIntError| {
+        ParseError {
+            line_number: line_number,
+            error: format!("Can't parse \"{}\" as integer: {}", field, err),
+        }
+    })
+}
+
+/// Parses an 16-bit integer.
+fn parse_u16(line_number: u32, field: &str) -> ParseResult1<u16> {
+    u16::from_str_radix(field, 10).map_err(|err: ParseIntError| {
+        ParseError {
+            line_number: line_number,
+            error: format!("Can't parse \"{}\" as integer: {}", field, err),
+        }
+    })
+}
+
+/// Parses a 64-bit float.
+fn parse_f64(line_number: u32, field: &str) -> ParseResult1<f64> {
+    f64::from_str(field).map_err(|err: ParseFloatError| {
+        ParseError {
+            line_number: line_number,
+            error: format!("Can't parse \"{}\" as float: {}", field, err),
+        }
+    })
+}
+
+/// Parses an RGB color.
+fn parse_rgb(line_number: u32, field: &str) -> ParseResult1<RGB> {
+    lazy_static! {
+        static ref RGB_RE: Regex = Regex::new(
+            r"^(?:#|0x2)([[:xdigit:]]{2})([[:xdigit:]]{2})([[:xdigit:]]{2})$")
+            .unwrap();
+    }
+    let captures = match RGB_RE.captures(&field) {
+        None => {
+            return Err(ParseError {
                 line_number: line_number,
-                error: format!("Invalid line type {}", line_type),
-            })
+                error: format!("Can't parse \"{}\" as RGB color", field),
+            });
+        },
+        Some(captures) => captures,
+    };
+    let red = u8::from_str_radix(captures.get(1).unwrap().as_str(), 16)
+        .unwrap();
+    let green = u8::from_str_radix(captures.get(2).unwrap().as_str(), 16)
+        .unwrap();
+    let blue = u8::from_str_radix(captures.get(3).unwrap().as_str(), 16)
+        .unwrap();
+    Ok(RGB(red, green, blue))
+}
+
+/// Parses a color reference.
+fn parse_color_ref(line_number: u32, field: &str) -> ParseResult1<ColorRef> {
+    if let Ok(index) = u16::from_str_radix(field, 10) {
+        return Ok(ColorRef::Indexed(index));
+    }
+    if let Ok(rgb) = parse_rgb(line_number, field) {
+        return Ok(ColorRef::RGB(rgb));
+    }
+    Err(ParseError {
+        line_number: line_number,
+        error: format!("Can't parse \"{}\" as color reference", field),
+    })
+}
+
+/// Parses an update tag.
+fn parse_update_tag(line_number: u32, field: &str) -> ParseResult1<UpdateTag> {
+    lazy_static! {
+        static ref TAG_RE: Regex = Regex::new(
+            r"^(\d{4})-(\d{2}|\?\?)(?:-(\d{2}|\?\?))?")
+            .unwrap();
+    }
+    let captures = match TAG_RE.captures(field) {
+        None => {
+            return Err(ParseError {
+                line_number: line_number,
+                error: format!("Can't parse \"{}\" as an update tag", field),
+            });
+        },
+        Some(captures) => captures,
+    };
+
+    let year = u16::from_str(captures.get(1).unwrap().as_str()).unwrap();
+    let month_str = captures.get(2).unwrap().as_str();
+    let month = if month_str == "??" {
+        None
+    } else {
+        Some(u8::from_str(month_str).unwrap())
+    };
+    match captures.get(3) {
+        Some(day_match) => {
+            let day_str = day_match.as_str();
+            let day = if day_str == "??" {
+                None
+            } else {
+                Some(u8::from_str(day_str).unwrap())
+            };
+            Ok(UpdateTag::Date(Date { year: year, month: month, day: day }))
+        },
+        None => {
+            match month {
+                Some(release) => {
+                    Ok(UpdateTag::Release(Release {
+                        year: year,
+                        release: release,
+                    }))
+                },
+                None => {
+                    Err(ParseError {
+                        line_number: line_number,
+                        error: format!("Can't use \"??\" as a release"),
+                    })
+                },
+            }
         },
     }
 }
 
+/// Parses a line containing an argument-less meta statement.
+fn parse_meta_argumentless(line_number: u32,
+                           fields: Vec<&str>,
+                           meta: Meta)
+    -> ParseResult1<Meta> {
+    try!(check_fields_eq(line_number, &fields, 2));
+    Ok(meta)
+}
+
+/// Parses a line containing a full-line meta statement.
+fn parse_meta_full_line(line_number: u32,
+                        fields: Vec<&str>,
+                        meta_constructor: fn(String) -> Meta)
+    -> ParseResult1<Meta> {
+    try!(check_fields_ge(line_number, &fields, 2));
+    Ok(meta_constructor(fields[2..fields.len()].join(" ")))
+}
+
+/// Parse a line containing an Author Meta statement.
+fn parse_meta_author(line_number: u32,
+                     fields: Vec<&str>)
+    -> ParseResult1<Meta> {
+    parse_meta_full_line(line_number, fields, Meta::Author)
+}
+
+/// Parse a line containing an BFC Meta statement.
+fn parse_meta_bfc(line_number: u32, fields: Vec<&str>) -> ParseResult1<Meta> {
+    try!(check_fields_ge(line_number, &fields, 3));
+    let bfc = if fields[2] == "NOCERTIFY" {
+        try!(check_fields_eq(line_number, &fields, 3));
+        BFCDeclaration::NoCertify
+    } else if fields[2] == "CERTIFY" {
+        try!(check_fields_le(line_number, &fields, 4));
+        if fields.len() == 3 || fields[3] == "CCW" {
+            BFCDeclaration::Certify(RotationSense::CCW)
+        } else if fields[3] == "CW" {
+            BFCDeclaration::Certify(RotationSense::CW)
+        } else {
+            return Err(ParseError {
+                line_number: line_number,
+                error: format!("Can't parse \"{}\" as rotation sense",
+                               fields[3]),
+            });
+        }
+    } else if fields[2] == "CW" {
+        try!(check_fields_eq(line_number, &fields, 3));
+        BFCDeclaration::Rotation(RotationSense::CW)
+    } else if fields[2] == "CCW" {
+        try!(check_fields_eq(line_number, &fields, 3));
+        BFCDeclaration::Rotation(RotationSense::CCW)
+    } else if fields[2] == "CLIP" {
+        try!(check_fields_le(line_number, &fields, 4));
+        if fields.len() == 3 || fields[3] == "CCW" {
+            BFCDeclaration::Clip(RotationSense::CCW)
+        } else if fields[3] == "CW" {
+            BFCDeclaration::Clip(RotationSense::CW)
+        } else {
+            return Err(ParseError {
+                line_number: line_number,
+                error: format!("Can't parse \"{}\" as rotation sense",
+                               fields[3]),
+            });
+        }
+    } else if fields[2] == "NOCLIP" {
+        try!(check_fields_eq(line_number, &fields, 3));
+        BFCDeclaration::NoClip
+    } else if fields[2] == "INVERTNEXT" {
+        try!(check_fields_eq(line_number, &fields, 3));
+        BFCDeclaration::InvertNext
+    } else {
+        return Err(ParseError {
+            line_number: line_number,
+            error: format!("Can't parse \"{}\" as BFC declaration",
+                           fields[2..fields.len()].join(" ")),
+        });
+    };
+    Ok(Meta::BFC(bfc))
+}
+
+/// Parse a line containing a !CATEGORY Meta statement.
+fn parse_meta_category(line_number: u32,
+                       fields: Vec<&str>)
+    -> ParseResult1<Meta> {
+    parse_meta_full_line(line_number, fields, Meta::Category)
+}
+
+/// Parse a line containing a CLEAR Meta statement.
+fn parse_meta_clear(line_number: u32, fields: Vec<&str>) -> ParseResult1<Meta> {
+    parse_meta_argumentless(line_number, fields, Meta::Clear)
+}
+
+/// Parse a line containing a !CMDLINE Meta statement.
+fn parse_meta_cmdline(line_number: u32,
+                      fields: Vec<&str>)
+    -> ParseResult1<Meta> {
+    try!(check_fields_ge(line_number, &fields, 3));
+    Ok(Meta::CmdLine(fields[2..fields.len()]
+        .iter()
+        .map(|s| s.to_string())
+        .collect()))
+}
+
+/// Parse a MATERIAL declaration at the end of a !COLOUR Meta statement.
+fn parse_color_material(line_number: u32,
+                        fields: &Vec<&str>,
+                        index: &mut usize)
+    -> ParseResult1<Material> {
+    if *index == fields.len() {
+        return Err(ParseError {
+            line_number: line_number,
+            error: format!("MATERIAL keyword missing its arguments"),
+        });
+    }
+    let start_index = *index;
+    if fields[start_index] == "GLITTER" || fields[start_index] == "SPECKLE" {
+        *index += 1;
+
+        // Parse VALUE <value>.
+        try!(check_field_get_and(line_number,
+                                 &fields,
+                                 *index,
+                                 |l, f| check_field_is(l, f, "VALUE")));
+        let value = try!(check_field_get_and(line_number,
+                                             fields,
+                                             *index + 1,
+                                             &parse_rgb));
+        *index += 2;
+
+        // Optionally parse ALPHA <alpha>.
+        let alpha = if *index == fields.len() || fields[*index] != "ALPHA" {
+            None
+        } else if *index == fields.len() - 1 {
+            return Err(ParseError {
+                line_number: line_number,
+                error: format!("ALPHA keyword missing its argument"),
+            });
+        } else {
+            *index += 2;
+            Some(try!(parse_u8(line_number, fields[*index - 1])))
+        };
+
+        // Optionally parse LUMINANCE <luminance>.
+        let luminance = if *index == fields.len() ||
+                           fields[*index] != "LUMINANCE" {
+            None
+        } else if *index == fields.len() - 1 {
+            return Err(ParseError {
+                line_number: line_number,
+                error: format!("LUMINANCE keyword missing its argument"),
+            });
+        } else {
+            *index += 2;
+            Some(try!(parse_u8(line_number, fields[*index - 1])))
+        };
+
+        // Parse FRACTION <fraction>.
+        try!(check_field_get_and(line_number,
+                                 &fields,
+                                 *index,
+                                 |l, f| check_field_is(l, f, "FRACTION")));
+        let fraction = try!(check_field_get_and(line_number,
+                                                fields,
+                                                *index + 1,
+                                                &parse_f64));
+        if fraction < 0.0 || fraction > 1.0 {
+            return Err(ParseError {
+                line_number: line_number,
+                error: format!("FRACTION value {} outside of [0.0, 1.0] range",
+                               fraction),
+            });
+        }
+        *index += 2;
+
+        // Parse VFRACTION <v_fraction> if the material is GLITTER.
+        let v_fraction = if fields[start_index] == "GLITTER" {
+            try!(check_field_get_and(line_number,
+                                     &fields,
+                                     *index,
+                                     |l, f| check_field_is(l, f, "VFRACTION")));
+            let v_fraction = try!(check_field_get_and(line_number,
+                                                      fields,
+                                                      *index + 1,
+                                                      &parse_f64));
+            if v_fraction < 0.0 || v_fraction > 1.0 {
+                return Err(ParseError {
+                    line_number: line_number,
+                    error: format!("VFRACTION value {} outside of [0.0, 1.0] \
+                                    range",
+                                   v_fraction),
+                });
+            }
+            *index += 2;
+            v_fraction
+        } else {
+            f64::NAN
+        };
+
+        // Parse SIZE <size> | MINSIZE <min_size> MAXSIZE <max_size>.
+        let size_kw = try!(check_field_get(line_number, &fields, *index));
+        let size = if size_kw == "SIZE" {
+            let size = try!(check_field_get_and(line_number,
+                                                fields,
+                                                *index + 1,
+                                                &parse_u8));
+            *index += 2;
+            (size, size)
+        } else if size_kw == "MINSIZE" {
+            let minsize = try!(check_field_get_and(line_number,
+                                                   fields,
+                                                   *index + 1,
+                                                   &parse_u8));
+            try!(check_field_get_and(line_number,
+                                     &fields,
+                                     *index + 2,
+                                     |l, f| check_field_is(l, f, "MAXSIZE")));
+            let maxsize = try!(check_field_get_and(line_number,
+                                                   fields,
+                                                   *index + 3,
+                                                   &parse_u8));
+            *index += 4;
+            (minsize, maxsize)
+        } else {
+            return Err(ParseError {
+                line_number: line_number,
+                error: format!("Unknown keyword \"{}\" in MATERIAL {}",
+                               size_kw,
+                               fields[start_index]),
+            });
+        };
+
+        if fields[start_index] == "GLITTER" {
+            Ok(Material::Glitter(Glitter {
+                value: value,
+                alpha: alpha,
+                luminance: luminance,
+                fraction: fraction,
+                v_fraction: v_fraction,
+                size: size,
+            }))
+        } else {
+            //  fields[index] == "SPECKLE" {
+            Ok(Material::Speckle(Speckle {
+                value: value,
+                alpha: alpha,
+                luminance: luminance,
+                fraction: fraction,
+                size: size,
+            }))
+        }
+
+    } else {
+        let start_index = *index;
+        *index = fields.len();
+        Ok(Material::Unknown(fields[start_index..fields.len()]
+            .iter()
+            .map(|f| f.to_string())
+            .collect()))
+    }
+}
+
+/// Parse a line containing a !COLOUR Meta statement.
+fn parse_meta_color(line_number: u32, fields: Vec<&str>) -> ParseResult1<Meta> {
+    try!(check_fields_ge(line_number, &fields, 9));
+
+    // Parse <name> CODE <code> VALUE <value> EDGE <edge>.
+    let name = fields[2].to_string();
+    try!(check_field_is(line_number, fields[3], "CODE"));
+    let code = try!(parse_u16(line_number, fields[4]));
+    try!(check_field_is(line_number, fields[5], "VALUE"));
+    let value = try!(parse_rgb(line_number, fields[6]));
+    try!(check_field_is(line_number, fields[7], "EDGE"));
+    let edge = try!(parse_color_ref(line_number, fields[8]));
+
+    // Next unparsed field.
+    let mut index: usize = 9;
+
+    // Optionally parse ALPHA <alpha>.
+    let alpha = if index == fields.len() || fields[index] != "ALPHA" {
+        None
+    } else if index == fields.len() - 1 {
+        return Err(ParseError {
+            line_number: line_number,
+            error: format!("ALPHA keyword missing its argument"),
+        });
+    } else {
+        index += 2;
+        Some(try!(parse_u8(line_number, fields[index - 1])))
+    };
+
+    // Optionally parse LUMINANCE <luminance>.
+    let luminance = if index == fields.len() || fields[index] != "LUMINANCE" {
+        None
+    } else if index == fields.len() - 1 {
+        return Err(ParseError {
+            line_number: line_number,
+            error: format!("LUMINANCE keyword missing its argument"),
+        });
+    } else {
+        index += 2;
+        Some(try!(parse_u8(line_number, fields[index - 1])))
+    };
+
+    // Optionally parse finishes.
+    let finish = if index == fields.len() {
+        None
+    } else if fields[index] == "CHROME" {
+        index += 1;
+        Some(Finish::Chrome)
+    } else if fields[index] == "PEARLESCENT" {
+        index += 1;
+        Some(Finish::Pearlescent)
+    } else if fields[index] == "RUBBER" {
+        index += 1;
+        Some(Finish::Rubber)
+    } else if fields[index] == "MATE_METALLIC" {
+        index += 1;
+        Some(Finish::MatteMetallic)
+    } else if fields[index] == "METAL" {
+        index += 1;
+        Some(Finish::Metal)
+    } else if fields[index] == "MATERIAL" {
+        index += 1;
+        Some(Finish::Material(try!(parse_color_material(line_number,
+                                                        &fields,
+                                                        &mut index))))
+    } else {
+        None
+    };
+
+    // Report unprocessed fields.
+    if index < fields.len() {
+        return Err(ParseError {
+            line_number: line_number,
+            error: format!("Unprocessed \"{}\" at the end of !COLOUR",
+                           fields[index..fields.len()].join(" ")),
+        });
+    }
+
+    Ok(Meta::Color(Color {
+        name: name,
+        code: code,
+        value: value,
+        edge: edge,
+        alpha: alpha,
+        luminance: luminance,
+        finish: finish,
+    }))
+}
+
+/// Parse a line containing a comment Meta statement.
+fn parse_meta_comment(line_number: u32,
+                      fields: Vec<&str>)
+    -> ParseResult1<Meta> {
+    parse_meta_full_line(line_number, fields, Meta::Comment)
+}
+
+/// Parse a line containing a FILE Meta statement.
+fn parse_meta_file(line_number: u32, fields: Vec<&str>) -> ParseResult1<Meta> {
+    try!(check_fields_eq(line_number, &fields, 3));
+    Ok(Meta::File(fields[2].to_string()))
+}
+
+/// Parse a line containing a file-type (!LDRAW_ORG) Meta statement.
+fn parse_meta_file_type(line_number: u32,
+                        fields: Vec<&str>)
+    -> ParseResult1<Meta> {
+    static CONTENTS: phf::Map<&'static str, Contents> = phf_map! {
+        "48_Primitive" => Contents::Primitive48,
+        "8_Primitive" => Contents::Primitive8,
+        "Alias" => Contents::Alias,
+        "Configuration" => Contents::Configuration,
+        "Cross-reference" => Contents::CrossReference,
+        "Element" => Contents::Element,
+        "File" => Contents::File,
+        "Hi-Res Primitive" => Contents::HiResPrimitive,
+        "Model" => Contents::Model,
+        "Part" => Contents::Part,
+        "Primitive" => Contents::Primitive,
+        "Shortcut" => Contents::Shortcut,
+        "Sub-part" => Contents::SubPart,
+        "Submodel" => Contents::Submodel,
+        "Subpart" => Contents::Subpart,
+    };
+
+    // Next unparsed field.
+    let mut index;
+
+    // Parse officiality.
+    let mut officiality =
+        if fields[1] == "!LDRAW_ORG" || fields[1] == "LDRAW_ORG" {
+            index = 2;
+            Officiality::LDrawOfficial
+        } else if fields[1] == "Unofficial" || fields[1] == "Un-official" {
+            index = 2;
+            Officiality::Unofficial
+        } else {
+            // fields[1] == "Official"
+            try!(check_field_get_and(line_number,
+                                     &fields,
+                                     2,
+                                     |l, f| check_field_is(l, f, "LCAD")));
+            index = 3;
+            Officiality::LDrawOfficial
+        };
+
+    // Parse contents.
+    let contents: Option<Contents> = if index == fields.len() {
+        if officiality == Officiality::LDrawOfficial {
+            return Err(ParseError {
+                line_number: line_number,
+                error: format!("Missing fields: expected content description"),
+            });
+        }
+        None
+    } else if fields[index]
+        .starts_with("Unofficial_") {
+        officiality = Officiality::Unofficial;
+        let contents_field = fields[index].trim_left_matches("Unofficial_");
+        match CONTENTS.get(contents_field) {
+            Some(contents) => Some(*contents),
+            None => {
+                return Err(ParseError {
+                    line_number: line_number,
+                    error: format!("Can't parse \"{}\" as content type",
+                                   fields[index]),
+                })
+            },
+        }
+    } else {
+        match CONTENTS.get(fields[index]) {
+            Some(contents) => Some(*contents),
+            None => {
+                return Err(ParseError {
+                    line_number: line_number,
+                    error: format!("Can't parse \"{}\" as content type",
+                                   fields[index]),
+                })
+            },
+        }
+    };
+    index += 1;
+
+    // Parse qualifiers.
+    let mut qualifiers = Vec::new();
+    loop {
+        if index == fields.len() {
+            break;
+        }
+        if fields[index] == "Alias" {
+            qualifiers.push(Qualifier::Alias);
+            index += 1;
+        } else if fields[index] == "Physical_Colour" {
+            qualifiers.push(Qualifier::PhysicalColor);
+            index += 1;
+        } else {
+            break;
+        }
+    }
+
+    // Parse update tag.
+    let update_tag = if index == fields.len() {
+        if officiality == Officiality::LDrawOfficial {
+            return Err(ParseError {
+                line_number: line_number,
+                error: format!("Missing fields: expected update tag"),
+            });
+        }
+        None
+    } else if fields[index] == "ORIGINAL" {
+        index += 1;
+        Some(UpdateTag::Original)
+    } else if fields[index] == "UPDATE" {
+        index += 1;
+        if index == fields.len() {
+            return Err(ParseError {
+                line_number: line_number,
+                error: format!("UPDATE keyword missing its argument"),
+            });
+        }
+        index += 1;
+        Some(try!(parse_update_tag(line_number, fields[index - 1])))
+    } else {
+        if officiality == Officiality::LDrawOfficial {
+            return Err(ParseError {
+                line_number: line_number,
+                error: format!("Can't parse \"{}\" as update tag",
+                               fields[index]),
+            });
+        }
+        None
+    };
+
+    // Report unprocessed fields.
+    if officiality == Officiality::LDrawOfficial && index < fields.len() {
+        return Err(ParseError {
+            line_number: line_number,
+            error: format!("Unprocessed \"{}\" at the end of {}",
+                           fields[index..fields.len()].join(" "),
+                           fields[1]),
+        });
+    }
+
+    Ok(Meta::FileType(FileType {
+        officiality: officiality,
+        contents: contents,
+        qualifiers: qualifiers,
+        update_tag: update_tag,
+    }))
+}
+
+/// Parse a line containing a !HELP Meta statement.
+fn parse_meta_help(line_number: u32, fields: Vec<&str>) -> ParseResult1<Meta> {
+    parse_meta_full_line(line_number, fields, Meta::Help)
+}
+
+/// Parse a line containing a !HISTORY Meta statement.
+fn parse_meta_history(line_number: u32,
+                      fields: Vec<&str>)
+    -> ParseResult1<Meta> {
+    let normalized_line = fields[2..fields.len()].join(" ");
+    lazy_static! {
+        static ref LINE_RE: Regex = Regex::new(
+            r"^(\d{4})-(\d{2}|\?\?)-(\d{2}|\?\?) (?:\[(.+)\]|\{(.+)\}) (.+)$")
+            .unwrap();
+    }
+    let captures = match LINE_RE.captures(&normalized_line) {
+        None => {
+            return Err(ParseError {
+                line_number: line_number,
+                error: format!("Can't parse \"{}\" as history entry",
+                               normalized_line),
+            });
+        },
+        Some(captures) => captures,
+    };
+
+    let year = u16::from_str(captures.get(1).unwrap().as_str()).unwrap();
+    let month_str = captures.get(2).unwrap().as_str();
+    let month = if month_str == "??" {
+        None
+    } else {
+        Some(u8::from_str(month_str).unwrap())
+    };
+    let day_str = captures.get(3).unwrap().as_str();
+    let day = if day_str == "??" {
+        None
+    } else {
+        Some(u8::from_str(day_str).unwrap())
+    };
+    let date = Date { year: year, month: month, day: day };
+
+    let author = match captures.get(4) {
+        Some(user_name) => {
+            HistoryEntryAuthor::UserName(user_name.as_str().to_string())
+        },
+        None => {
+            HistoryEntryAuthor::RealName(captures.get(5)
+                .unwrap()
+                .as_str()
+                .to_string())
+        },
+    };
+    let text = captures.get(6).unwrap().as_str().to_string();
+
+    Ok(Meta::History(HistoryEntry { date: date, author: author, text: text }))
+}
+
+/// Parse a line containing a !KEYWORDS Meta statement.
+fn parse_meta_keywords(line_number: u32,
+                       fields: Vec<&str>)
+    -> ParseResult1<Meta> {
+    try!(check_fields_ge(line_number, &fields, 3));
+    let keywords: Vec<String> = fields[2..fields.len()]
+        .join(" ")
+        .split(',')
+        .map(|s| s.trim())
+        .filter(|s| !s.is_empty())
+        .map(|s| s.to_string())
+        .collect();
+    Ok(Meta::Keywords(keywords))
+}
+
+/// Parse a line containing a !LICENSE Meta statement.
+fn parse_meta_license(line_number: u32,
+                      fields: Vec<&str>)
+    -> ParseResult1<Meta> {
+    parse_meta_full_line(line_number, fields, Meta::License)
+}
+
+/// Parse a line containing a Name Meta statement.
+fn parse_meta_name(line_number: u32, fields: Vec<&str>) -> ParseResult1<Meta> {
+    parse_meta_full_line(line_number, fields, Meta::Name)
+}
+
+/// Parse a line containing a NOFILE Meta statement.
+fn parse_meta_nofile(line_number: u32,
+                     fields: Vec<&str>)
+    -> ParseResult1<Meta> {
+    parse_meta_argumentless(line_number, fields, Meta::NoFile)
+}
+
+/// Parse a line containing a PAUSE Meta statement.
+fn parse_meta_pause(line_number: u32, fields: Vec<&str>) -> ParseResult1<Meta> {
+    parse_meta_argumentless(line_number, fields, Meta::Pause)
+}
+
+/// Parse a line containing a PRINT/WRITE Meta statement.
+fn parse_meta_print(line_number: u32, fields: Vec<&str>) -> ParseResult1<Meta> {
+    parse_meta_full_line(line_number, fields, Meta::Print)
+}
+
+/// Parse a line containing a SAVE Meta statement.
+fn parse_meta_save(line_number: u32, fields: Vec<&str>) -> ParseResult1<Meta> {
+    parse_meta_argumentless(line_number, fields, Meta::Save)
+}
+
+/// Parse a line containing a STEP Meta statement.
+fn parse_meta_step(line_number: u32, fields: Vec<&str>) -> ParseResult1<Meta> {
+    parse_meta_argumentless(line_number, fields, Meta::Step)
+}
+
 /// Parse a line containing a Meta statement.
-fn parse_meta_statement(line_number: u32, fields: Vec<&str>)
-    -> ParseResult1<Option<Statement>> {
-    Ok(None)
+fn parse_meta_statement(line_number: u32,
+                        fields: Vec<&str>)
+    -> ParseResult1<Statement> {
+    type MetaParser = fn(u32, Vec<&str>) -> ParseResult1<Meta>;
+    static META_KEYWORDS: phf::Map<&'static str, &'static MetaParser> =
+        phf_map! {
+            "!CATEGORY" => &(parse_meta_category as MetaParser),
+            "!CMDLINE" => &(parse_meta_cmdline as MetaParser),
+            "!COLOUR" => &(parse_meta_color as MetaParser),
+            "!HELP" => &(parse_meta_help as MetaParser),
+            "!HISTORY" => &(parse_meta_history as MetaParser),
+            "!KEYWORDS" => &(parse_meta_keywords as MetaParser),
+            "!LDRAW_ORG" => &(parse_meta_file_type as MetaParser),
+            "!LICENSE" => &(parse_meta_license as MetaParser),
+            "//" => &(parse_meta_comment as MetaParser),
+            "Author:" => &(parse_meta_author as MetaParser),
+            "BFC" => &(parse_meta_bfc as MetaParser),
+            "CLEAR" => &(parse_meta_clear as MetaParser),
+            "FILE" => &(parse_meta_file as MetaParser),
+            "LDRAW_ORG" => &(parse_meta_file_type as MetaParser),
+            "Name:" => &(parse_meta_name as MetaParser),
+            "NOFILE" => &(parse_meta_nofile as MetaParser),
+            "Official" => &(parse_meta_file_type as MetaParser),
+            "PAUSE" => &(parse_meta_pause as MetaParser),
+            "SAVE" => &(parse_meta_save as MetaParser),
+            "STEP" => &(parse_meta_step as MetaParser),
+            "Unofficial" => &(parse_meta_file_type as MetaParser),
+            "Un-official" => &(parse_meta_file_type as MetaParser),
+            "WRITE" => &(parse_meta_print as MetaParser),
+        };
+
+    if fields.len() < 2 {
+        return Ok(Statement::Meta(Meta::Empty));
+    }
+    match META_KEYWORDS.get(fields[1]) {
+        Some(handler) => handler(line_number, fields).map(Statement::Meta),
+        None => {
+            let meta = if line_number == 1 {
+                Meta::Description
+            } else {
+                Meta::Unknown
+            };
+            Ok(Statement::Meta(meta(fields[1..fields.len()].join(" "))))
+        },
+    }
 }
 
 /// Parse a line containing a Subfile statement.
+#[allow(unused_attributes)]
 #[rustfmt_skip]
-fn parse_subfile_statement(line_number: u32, fields: Vec<&str>)
-    -> ParseResult1<Option<Statement>> {
+fn parse_subfile_statement(line_number: u32,
+                           fields: Vec<&str>)
+    -> ParseResult1<Statement> {
     type RawMatrix = NAMatrix<f64, U4, U4, MatrixArray<f64, U4, U4>>;
-    if fields.len() != 15 {
-        return Err(ParseError {
-            line_number: line_number,
-            error: format!("Line has {} fields: expected 15", fields.len()),
-        });
-    }
+    try!(check_fields_eq(line_number, &fields, 15));
     let color_ref = try!(parse_color_ref(line_number, fields[1]));
     let origin = try!(map_result_monad(|f| parse_f64(line_number, f),
                                        &fields[2..5]));
@@ -163,60 +1058,48 @@ fn parse_subfile_statement(line_number: u32, fields: Vec<&str>)
         transform[6], transform[7], transform[8], origin[2],
         0.0,          0.0,          0.0,          1.0);
     let matrix: Matrix = unsafe { convert_unchecked(raw_matrix) };
-    Ok(Some(Statement::Subfile {
+    Ok(Statement::Subfile {
         color: color_ref,
         matrix: matrix,
         file: String::from(fields[14]),
-    }))
+    })
 }
 
 /// Parse a line containing a Line statement.
-fn parse_line_statement(line_number: u32, fields: Vec<&str>)
-    -> ParseResult1<Option<Statement>> {
-    if fields.len() != 8 {
-        return Err(ParseError {
-            line_number: line_number,
-            error: format!("Line has {} fields: expected 8", fields.len()),
-        });
-    }
+fn parse_line_statement(line_number: u32,
+                        fields: Vec<&str>)
+    -> ParseResult1<Statement> {
+    try!(check_fields_eq(line_number, &fields, 8));
     let color_ref = try!(parse_color_ref(line_number, fields[1]));
     let coordinates = try!(map_result_monad(|f| parse_f64(line_number, f),
                                             &fields[2..8]));
     let a = Point::new(coordinates[0], coordinates[1], coordinates[2]);
     let b = Point::new(coordinates[3], coordinates[4], coordinates[5]);
-    Ok(Some(Statement::Line { color: color_ref, line: Line { a: a, b: b } }))
+    Ok(Statement::Line { color: color_ref, line: Line { a: a, b: b } })
 }
 
 /// Parse a line containing a Triangle statement.
-fn parse_triangle_statement(line_number: u32, fields: Vec<&str>)
-    -> ParseResult1<Option<Statement>> {
-    if fields.len() != 11 {
-        return Err(ParseError {
-            line_number: line_number,
-            error: format!("Line has {} fields: expected 11", fields.len()),
-        });
-    }
+fn parse_triangle_statement(line_number: u32,
+                            fields: Vec<&str>)
+    -> ParseResult1<Statement> {
+    try!(check_fields_eq(line_number, &fields, 11));
     let color_ref = try!(parse_color_ref(line_number, fields[1]));
     let coordinates = try!(map_result_monad(|f| parse_f64(line_number, f),
                                             &fields[2..11]));
     let a = Point::new(coordinates[0], coordinates[1], coordinates[2]);
     let b = Point::new(coordinates[3], coordinates[4], coordinates[5]);
     let c = Point::new(coordinates[6], coordinates[7], coordinates[8]);
-    Ok(Some(Statement::Triangle {
+    Ok(Statement::Triangle {
         color: color_ref,
         triangle: Triangle { a: a, b: b, c: c },
-    }))
+    })
 }
 
 /// Parse a line containing a Quad statement.
-fn parse_quad_statement(line_number: u32, fields: Vec<&str>)
-    -> ParseResult1<Option<Statement>> {
-    if fields.len() != 14 {
-        return Err(ParseError {
-            line_number: line_number,
-            error: format!("Line has {} fields: expected 14", fields.len()),
-        });
-    }
+fn parse_quad_statement(line_number: u32,
+                        fields: Vec<&str>)
+    -> ParseResult1<Statement> {
+    try!(check_fields_eq(line_number, &fields, 14));
     let color_ref = try!(parse_color_ref(line_number, fields[1]));
     let coordinates = try!(map_result_monad(|f| parse_f64(line_number, f),
                                             &fields[2..14]));
@@ -224,21 +1107,17 @@ fn parse_quad_statement(line_number: u32, fields: Vec<&str>)
     let b = Point::new(coordinates[3], coordinates[4], coordinates[5]);
     let c = Point::new(coordinates[6], coordinates[7], coordinates[8]);
     let d = Point::new(coordinates[9], coordinates[10], coordinates[11]);
-    Ok(Some(Statement::Quad {
+    Ok(Statement::Quad {
         color: color_ref,
         quad: Quad { a: a, b: b, c: c, d: d },
-    }))
+    })
 }
 
 /// Parse a line containing an OptionalLine statement.
-fn parse_optional_line_statement(line_number: u32, fields: Vec<&str>)
-    -> ParseResult1<Option<Statement>> {
-    if fields.len() != 14 {
-        return Err(ParseError {
-            line_number: line_number,
-            error: format!("Line has {} fields: expected 14", fields.len()),
-        });
-    }
+fn parse_optional_line_statement(line_number: u32,
+                                 fields: Vec<&str>)
+    -> ParseResult1<Statement> {
+    try!(check_fields_eq(line_number, &fields, 14));
     let color_ref = try!(parse_color_ref(line_number, fields[1]));
     let coordinates = try!(map_result_monad(|f| parse_f64(line_number, f),
                                             &fields[2..14]));
@@ -246,65 +1125,11 @@ fn parse_optional_line_statement(line_number: u32, fields: Vec<&str>)
     let b = Point::new(coordinates[3], coordinates[4], coordinates[5]);
     let c_a = Point::new(coordinates[6], coordinates[7], coordinates[8]);
     let c_b = Point::new(coordinates[9], coordinates[10], coordinates[11]);
-    Ok(Some(Statement::OptionalLine {
+    Ok(Statement::OptionalLine {
         color: color_ref,
         line: Line { a: a, b: b },
         control_line: Line { a: c_a, b: c_b },
-    }))
-}
-
-/// Parse an 8-bit integer.
-fn parse_u8(line_number: u32, field: &str) -> ParseResult1<u8> {
-    u8::from_str_radix(field, 10).map_err(|err: ParseIntError| {
-        ParseError {
-            line_number: line_number,
-            error: format!("Can't parse \"{}\" as integer: {}", field, err),
-        }
     })
-}
-
-/// Parse a 16-bit integer.
-fn parse_u16(line_number: u32, field: &str) -> ParseResult1<u16> {
-    u16::from_str_radix(field, 10).map_err(|err: ParseIntError| {
-        ParseError {
-            line_number: line_number,
-            error: format!("Can't parse \"{}\" as integer: {}", field, err),
-        }
-    })
-}
-
-/// Parse a 64-bit float.
-fn parse_f64(line_number: u32, field: &str) -> ParseResult1<f64> {
-    f64::from_str(field).map_err(|err: ParseFloatError| {
-        ParseError {
-            line_number: line_number,
-            error: format!("Can't parse \"{}\" as float: {}", field, err),
-        }
-    })
-}
-
-/// Parse a field containing a color reference.
-///
-/// TODO: Add support for RGB colors.
-fn parse_color_ref(line_number: u32, field: &str) -> ParseResult1<ColorRef> {
-    if let Ok(index) = u16::from_str_radix(field, 10) {
-        return Ok(ColorRef::Indexed(index));
-    }
-    Err(ParseError {
-        line_number: line_number,
-        error: format!("Can't parse \"{}\" as color", field),
-    })
-}
-
-/// Map a function over a container on the Result monad.
-fn map_result_monad<F, I, O, E>(func: F, inputs: I) -> Result<Vec<O>, E>
-    where I: IntoIterator,
-          F: Fn(I::Item) -> Result<O, E> {
-    let mut vec = Vec::new();
-    for input in inputs {
-        vec.push(try!(func(input)));
-    }
-    Ok(vec)
 }
 
 // Local Variables:

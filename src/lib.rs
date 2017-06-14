@@ -21,8 +21,15 @@
 //! [1]: http://www.ldraw.org
 
 #![feature(custom_attribute)]
+#![feature(plugin)]
+#![plugin(phf_macros)]
+
+#[macro_use]
+extern crate lazy_static;
 
 extern crate nalgebra as na;
+extern crate phf;
+extern crate regex;
 
 pub mod file;
 pub mod load;

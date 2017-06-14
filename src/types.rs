@@ -72,7 +72,7 @@ pub enum RotationSense {
 
 /// RGB Color.
 #[derive(Debug)]
-pub struct RGB(u8, u8, u8);
+pub struct RGB(pub u8, pub u8, pub u8);
 
 /// Color reference.
 #[derive(Debug)]
