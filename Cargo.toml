@@ -22,6 +22,7 @@ version = "0.1.0"
 authors = ["Edgar Gonzàlez Pellicer <edgar.gip@gmail.com>"]
 
 [dependencies]
+kiss3d = "*"
 lazy_static = "*"
 nalgebra = "*"
 phf = "*"

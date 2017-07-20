@@ -70,19 +70,22 @@ pub enum RotationSense {
     CCW,
 }
 
+/// Index for the main color of a subpart.
+pub const MAIN_COLOR_INDEX: u16 = 16;
+
 /// RGB Color.
-#[derive(Debug)]
+#[derive(Clone, Debug)]
 pub struct RGB(pub u8, pub u8, pub u8);
 
 /// Color reference.
-#[derive(Debug)]
+#[derive(Clone, Debug)]
 pub enum ColorRef {
     Indexed(u16),
     RGB(RGB),
 }
 
 /// Glitter material.
-#[derive(Debug)]
+#[derive(Clone, Debug)]
 pub struct Glitter {
     pub value: RGB,
     pub alpha: Option<u8>,
@@ -93,7 +96,7 @@ pub struct Glitter {
 }
 
 /// Speckle material.
-#[derive(Debug)]
+#[derive(Clone, Debug)]
 pub struct Speckle {
     pub value: RGB,
     pub alpha: Option<u8>,
@@ -103,7 +106,7 @@ pub struct Speckle {
 }
 
 /// Color material.
-#[derive(Debug)]
+#[derive(Clone, Debug)]
 pub enum Material {
     Glitter(Glitter),
     Speckle(Speckle),
@@ -111,7 +114,7 @@ pub enum Material {
 }
 
 /// Color finish.
-#[derive(Debug)]
+#[derive(Clone, Debug)]
 pub enum Finish {
     Chrome,
     Pearlescent,
@@ -122,7 +125,7 @@ pub enum Finish {
 }
 
 /// Color.
-#[derive(Debug)]
+#[derive(Clone, Debug)]
 pub struct Color {
     pub name: String,
     pub code: u16, // must be 0-511 for LDraw compatibility

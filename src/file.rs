@@ -33,6 +33,8 @@
 //! [5]: http://www.ldraw.org/article/340
 //! [6]: http://www.ldraw.org/article/415
 
+use std::path::PathBuf;
+
 use super::types::*;
 
 /// BFC declaration.
@@ -201,7 +203,7 @@ pub enum Meta {
 #[derive(Debug)]
 pub enum Statement {
     Meta(Meta),
-    Subfile { color: ColorRef, matrix: Matrix, file: String },
+    Subfile { color: ColorRef, matrix: Matrix, file: PathBuf },
     Line { color: ColorRef, line: Line },
     Triangle { color: ColorRef, triangle: Triangle },
     Quad { color: ColorRef, quad: Quad },

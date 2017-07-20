@@ -23,18 +23,19 @@ extern crate ldraw;
 use ldraw::load_ldraw;
 use std::env;
 use std::io::{Write, stderr};
+use std::path::Path;
 
 fn main() {
     let args = env::args();
     assert!(args.len() == 2);
     let file_path: String = args.last().unwrap();
 
-    match load_ldraw(&file_path) {
+    match load_ldraw(&Path::new(&file_path)) {
         Err(parse_errors) => {
             for error in parse_errors {
                 writeln!(stderr(),
                          "{}:{}: {}",
-                         file_path,
+                         error.path.display(),
                          error.line_number,
                          error.error)
                     .unwrap();
