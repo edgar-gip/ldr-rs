@@ -454,17 +454,41 @@ fn parse_meta_bfc(path: &Path,
             });
         }
     } else if fields[2] == "CW" {
-        try!(check_fields_eq(path, line_number, &fields, 3));
-        BFCDeclaration::Rotation(RotationSense::CW)
+        try!(check_fields_le(path, line_number, &fields, 4));
+        if fields.len() == 3 {
+            BFCDeclaration::Rotation(RotationSense::CW)
+        } else if fields[3] == "CLIP" {
+            BFCDeclaration::Clip(Some(RotationSense::CW))
+        } else {
+            return Err(ParseError {
+                path: path.to_path_buf(),
+                line_number: line_number,
+                error: format!("Can't parse \"{}\" as BFC declaration",
+                               fields[2..fields.len()].join(" ")),
+            });
+        }
     } else if fields[2] == "CCW" {
-        try!(check_fields_eq(path, line_number, &fields, 3));
-        BFCDeclaration::Rotation(RotationSense::CCW)
+        try!(check_fields_le(path, line_number, &fields, 4));
+        if fields.len() == 3 {
+            BFCDeclaration::Rotation(RotationSense::CCW)
+        } else if fields[3] == "CLIP" {
+            BFCDeclaration::Clip(Some(RotationSense::CCW))
+        } else {
+            return Err(ParseError {
+                path: path.to_path_buf(),
+                line_number: line_number,
+                error: format!("Can't parse \"{}\" as BFC declaration",
+                               fields[2..fields.len()].join(" ")),
+            });
+        }
     } else if fields[2] == "CLIP" {
         try!(check_fields_le(path, line_number, &fields, 4));
-        if fields.len() == 3 || fields[3] == "CCW" {
-            BFCDeclaration::Clip(RotationSense::CCW)
+        if fields.len() == 3 {
+            BFCDeclaration::Clip(None)
+        } else if fields[3] == "CCW" {
+            BFCDeclaration::Clip(Some(RotationSense::CCW))
         } else if fields[3] == "CW" {
-            BFCDeclaration::Clip(RotationSense::CW)
+            BFCDeclaration::Clip(Some(RotationSense::CW))
         } else {
             return Err(ParseError {
                 path: path.to_path_buf(),

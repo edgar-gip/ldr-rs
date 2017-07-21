@@ -18,6 +18,9 @@
 
 //! Loader of LDraw models.
 
+use na::convert_unchecked;
+use na::core::{Matrix as NAMatrix, MatrixArray};
+use na::core::dimension::U4;
 use std::collections::{BTreeMap, HashMap};
 use std::convert::From;
 use std::fs::metadata;
@@ -26,7 +29,8 @@ use std::rc::Rc;
 
 use super::file::{LDFile, Meta, Statement};
 use super::load::{ParseError, ParseResult, load_ldraw};
-use super::types::*;
+use super::types::{Color, ColorRef, Line, MAIN_COLOR_INDEX, Matrix, Quad,
+                   Triangle};
 
 /// Options to initialize a loader.
 pub struct Options {
@@ -63,9 +67,17 @@ struct State<'a, 'b> {
 
 impl<'a, 'b> State<'a, 'b> {
     /// Creates a new root State.
+    #[allow(unused_attributes)]
+    #[rustfmt_skip]
     fn new(path: &'a Path, root_directory: &'b Path) -> State<'a, 'b> {
+        type RawMatrix = NAMatrix<f64, U4, U4, MatrixArray<f64, U4, U4>>;
         let colors = BTreeMap::new();
-        let transform = Matrix::identity();
+        let raw_transform = RawMatrix::new(
+            1.0,  0.0,  0.0, 0.0,
+            0.0, -1.0,  0.0, 0.0,
+            0.0,  0.0, -1.0, 0.0,
+            0.0,  0.0,  0.0, 1.0);
+        let transform: Matrix = unsafe { convert_unchecked(raw_transform) };
         State {
             path: path,
             root_directory: root_directory,

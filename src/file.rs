@@ -43,7 +43,7 @@ pub enum BFCDeclaration {
     Certify(RotationSense),
     NoCertify,
     Rotation(RotationSense),
-    Clip(RotationSense),
+    Clip(Option<RotationSense>),
     NoClip,
     InvertNext,
 }
