@@ -21,8 +21,7 @@
 //! [1]: http://www.ldraw.org
 
 #![feature(custom_attribute)]
-#![feature(plugin)]
-#![plugin(phf_macros)]
+#![feature(proc_macro_hygiene)]
 
 #[macro_use]
 extern crate lazy_static;

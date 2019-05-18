@@ -20,13 +20,13 @@
 name = "ldraw"
 version = "0.1.0"
 authors = ["Edgar Gonzàlez Pellicer <edgar.gip@gmail.com>"]
+edition = "2018"
 
 [dependencies]
 kiss3d = "*"
 lazy_static = "*"
 nalgebra = "*"
-phf = "*"
-phf_macros = "*"
+phf = { version = "*", features = ["macros"] }
 regex = "*"
 
 # Local Variables:

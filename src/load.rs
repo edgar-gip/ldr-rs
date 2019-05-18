@@ -19,9 +19,9 @@
 //! Loading of LDraw files.
 
 use na::convert_unchecked;
-use na::core::{Matrix as NAMatrix, MatrixArray};
+use na::core::{ArrayStorage, Matrix as NAMatrix};
 use na::core::dimension::U4;
-use phf;
+use phf::{self, phf_map};
 use regex::Regex;
 use std::f64;
 use std::fs::File;
@@ -50,7 +50,7 @@ type ParseResult1<T> = Result<T, ParseError>;
 /// Loads an LDraw file from a stream.
 pub fn load_ldraw(path: &Path) -> ParseResult<LDFile> {
     // Open the file and create a reader for it.
-    let file = try!(File::open(&path).map_err(|err: IoError| {
+    let file = File::open(&path).map_err(|err: IoError| {
         vec![ParseError {
                  path: path.to_path_buf(),
                  line_number: 0,
@@ -58,7 +58,7 @@ pub fn load_ldraw(path: &Path) -> ParseResult<LDFile> {
                                 path.display(),
                                 err),
              }]
-    }));
+    })?;
     let mut reader = BufReader::new(file);
 
     // Resulting sets of statements and errors.
@@ -123,7 +123,7 @@ fn process_line(path: &Path,
     }
 
     // Dispatch according to the line type.
-    let line_type = try!(parse_u8(path, line_number, fields[0]));
+    let line_type = parse_u8(path, line_number, fields[0])?;
     match line_type {
             0 => parse_meta_statement(path, line_number, fields),
             1 => parse_subfile_statement(path, line_number, fields),
@@ -148,7 +148,7 @@ fn map_result_monad<F, I, O, E>(func: F, inputs: I) -> Result<Vec<O>, E>
           F: Fn(I::Item) -> Result<O, E> {
     let mut vec = Vec::new();
     for input in inputs {
-        vec.push(try!(func(input)));
+        vec.push(func(input)?);
     }
     Ok(vec)
 }
@@ -408,7 +408,7 @@ fn parse_meta_argumentless(path: &Path,
                            fields: Vec<&str>,
                            meta: Meta)
     -> ParseResult1<Meta> {
-    try!(check_fields_eq(path, line_number, &fields, 2));
+    check_fields_eq(path, line_number, &fields, 2)?;
     Ok(meta)
 }
 
@@ -418,7 +418,7 @@ fn parse_meta_full_line(path: &Path,
                         fields: Vec<&str>,
                         meta_constructor: fn(String) -> Meta)
     -> ParseResult1<Meta> {
-    try!(check_fields_ge(path, line_number, &fields, 2));
+    check_fields_ge(path, line_number, &fields, 2)?;
     Ok(meta_constructor(fields[2..fields.len()].join(" ")))
 }
 
@@ -435,12 +435,12 @@ fn parse_meta_bfc(path: &Path,
                   line_number: u32,
                   fields: Vec<&str>)
     -> ParseResult1<Meta> {
-    try!(check_fields_ge(path, line_number, &fields, 3));
+    check_fields_ge(path, line_number, &fields, 3)?;
     let bfc = if fields[2] == "NOCERTIFY" {
-        try!(check_fields_eq(path, line_number, &fields, 3));
+        check_fields_eq(path, line_number, &fields, 3)?;
         BFCDeclaration::NoCertify
     } else if fields[2] == "CERTIFY" {
-        try!(check_fields_le(path, line_number, &fields, 4));
+        check_fields_le(path, line_number, &fields, 4)?;
         if fields.len() == 3 || fields[3] == "CCW" {
             BFCDeclaration::Certify(RotationSense::CCW)
         } else if fields[3] == "CW" {
@@ -454,7 +454,7 @@ fn parse_meta_bfc(path: &Path,
             });
         }
     } else if fields[2] == "CW" {
-        try!(check_fields_le(path, line_number, &fields, 4));
+        check_fields_le(path, line_number, &fields, 4)?;
         if fields.len() == 3 {
             BFCDeclaration::Rotation(RotationSense::CW)
         } else if fields[3] == "CLIP" {
@@ -468,7 +468,7 @@ fn parse_meta_bfc(path: &Path,
             });
         }
     } else if fields[2] == "CCW" {
-        try!(check_fields_le(path, line_number, &fields, 4));
+        check_fields_le(path, line_number, &fields, 4)?;
         if fields.len() == 3 {
             BFCDeclaration::Rotation(RotationSense::CCW)
         } else if fields[3] == "CLIP" {
@@ -482,7 +482,7 @@ fn parse_meta_bfc(path: &Path,
             });
         }
     } else if fields[2] == "CLIP" {
-        try!(check_fields_le(path, line_number, &fields, 4));
+        check_fields_le(path, line_number, &fields, 4)?;
         if fields.len() == 3 {
             BFCDeclaration::Clip(None)
         } else if fields[3] == "CCW" {
@@ -498,10 +498,10 @@ fn parse_meta_bfc(path: &Path,
             });
         }
     } else if fields[2] == "NOCLIP" {
-        try!(check_fields_eq(path, line_number, &fields, 3));
+        check_fields_eq(path, line_number, &fields, 3)?;
         BFCDeclaration::NoClip
     } else if fields[2] == "INVERTNEXT" {
-        try!(check_fields_eq(path, line_number, &fields, 3));
+        check_fields_eq(path, line_number, &fields, 3)?;
         BFCDeclaration::InvertNext
     } else {
         return Err(ParseError {
@@ -535,7 +535,7 @@ fn parse_meta_cmdline(path: &Path,
                       line_number: u32,
                       fields: Vec<&str>)
     -> ParseResult1<Meta> {
-    try!(check_fields_ge(path, line_number, &fields, 3));
+    check_fields_ge(path, line_number, &fields, 3)?;
     Ok(Meta::CmdLine(fields[2..fields.len()]
         .iter()
         .map(|s| s.to_string())
@@ -560,16 +560,16 @@ fn parse_color_material(path: &Path,
         *index += 1;
 
         // Parse VALUE <value>.
-        try!(check_field_get_and(path,
-                                 line_number,
-                                 &fields,
-                                 *index,
-                                 |p, l, f| check_field_is(p, l, f, "VALUE")));
-        let value = try!(check_field_get_and(path,
-                                             line_number,
-                                             fields,
-                                             *index + 1,
-                                             &parse_rgb));
+        check_field_get_and(path,
+                            line_number,
+                            &fields,
+                            *index,
+                            |p, l, f| check_field_is(p, l, f, "VALUE"))?;
+        let value = check_field_get_and(path,
+                                        line_number,
+                                        fields,
+                                        *index + 1,
+                                        &parse_rgb)?;
         *index += 2;
 
         // Optionally parse ALPHA <alpha>.
@@ -583,7 +583,7 @@ fn parse_color_material(path: &Path,
             });
         } else {
             *index += 2;
-            Some(try!(parse_u8(path, line_number, fields[*index - 1])))
+            Some(parse_u8(path, line_number, fields[*index - 1])?)
         };
 
         // Optionally parse LUMINANCE <luminance>.
@@ -598,22 +598,22 @@ fn parse_color_material(path: &Path,
             });
         } else {
             *index += 2;
-            Some(try!(parse_u8(path, line_number, fields[*index - 1])))
+            Some(parse_u8(path, line_number, fields[*index - 1])?)
         };
 
         // Parse FRACTION <fraction>.
-        try!(check_field_get_and(path,
-                                 line_number,
-                                 &fields,
-                                 *index,
-                                 |p, l, f| {
+        check_field_get_and(path,
+                            line_number,
+                            &fields,
+                            *index,
+                            |p, l, f| {
             check_field_is(p, l, f, "FRACTION")
-        }));
-        let fraction = try!(check_field_get_and(path,
-                                                line_number,
-                                                fields,
-                                                *index + 1,
-                                                &parse_f64));
+        })?;
+        let fraction = check_field_get_and(path,
+                                           line_number,
+                                           fields,
+                                           *index + 1,
+                                           &parse_f64)?;
         if fraction < 0.0 || fraction > 1.0 {
             return Err(ParseError {
                 path: path.to_path_buf(),
@@ -626,18 +626,18 @@ fn parse_color_material(path: &Path,
 
         // Parse VFRACTION <v_fraction> if the material is GLITTER.
         let v_fraction = if fields[start_index] == "GLITTER" {
-            try!(check_field_get_and(path,
-                                     line_number,
-                                     &fields,
-                                     *index,
-                                     |p, l, f| {
+            check_field_get_and(path,
+                                line_number,
+                                &fields,
+                                *index,
+                                |p, l, f| {
                 check_field_is(p, l, f, "VFRACTION")
-            }));
-            let v_fraction = try!(check_field_get_and(path,
-                                                      line_number,
-                                                      fields,
-                                                      *index + 1,
-                                                      &parse_f64));
+            })?;
+            let v_fraction = check_field_get_and(path,
+                                                 line_number,
+                                                 fields,
+                                                 *index + 1,
+                                                 &parse_f64)?;
             if v_fraction < 0.0 || v_fraction > 1.0 {
                 return Err(ParseError {
                     path: path.to_path_buf(),
@@ -654,33 +654,33 @@ fn parse_color_material(path: &Path,
         };
 
         // Parse SIZE <size> | MINSIZE <min_size> MAXSIZE <max_size>.
-        let size_kw = try!(check_field_get(path, line_number, &fields, *index));
+        let size_kw = check_field_get(path, line_number, &fields, *index)?;
         let size = if size_kw == "SIZE" {
-            let size = try!(check_field_get_and(path,
-                                                line_number,
-                                                fields,
-                                                *index + 1,
-                                                &parse_u8));
+            let size = check_field_get_and(path,
+                                           line_number,
+                                           fields,
+                                           *index + 1,
+                                           &parse_u8)?;
             *index += 2;
             (size, size)
         } else if size_kw == "MINSIZE" {
-            let minsize = try!(check_field_get_and(path,
-                                                   line_number,
-                                                   fields,
-                                                   *index + 1,
-                                                   &parse_u8));
-            try!(check_field_get_and(path,
-                                     line_number,
-                                     &fields,
-                                     *index + 2,
-                                     |p, l, f| {
+            let minsize = check_field_get_and(path,
+                                              line_number,
+                                              fields,
+                                              *index + 1,
+                                              &parse_u8)?;
+            check_field_get_and(path,
+                                line_number,
+                                &fields,
+                                *index + 2,
+                                |p, l, f| {
                 check_field_is(p, l, f, "MAXSIZE")
-            }));
-            let maxsize = try!(check_field_get_and(path,
-                                                   line_number,
-                                                   fields,
-                                                   *index + 3,
-                                                   &parse_u8));
+            })?;
+            let maxsize = check_field_get_and(path,
+                                              line_number,
+                                              fields,
+                                              *index + 3,
+                                              &parse_u8)?;
             *index += 4;
             (minsize, maxsize)
         } else {
@@ -728,16 +728,16 @@ fn parse_meta_color(path: &Path,
                     line_number: u32,
                     fields: Vec<&str>)
     -> ParseResult1<Meta> {
-    try!(check_fields_ge(path, line_number, &fields, 9));
+    check_fields_ge(path, line_number, &fields, 9)?;
 
     // Parse <name> CODE <code> VALUE <value> EDGE <edge>.
     let name = fields[2].to_string();
-    try!(check_field_is(path, line_number, fields[3], "CODE"));
-    let code = try!(parse_u16(path, line_number, fields[4]));
-    try!(check_field_is(path, line_number, fields[5], "VALUE"));
-    let value = try!(parse_rgb(path, line_number, fields[6]));
-    try!(check_field_is(path, line_number, fields[7], "EDGE"));
-    let edge = try!(parse_color_ref(path, line_number, fields[8]));
+    check_field_is(path, line_number, fields[3], "CODE")?;
+    let code = parse_u16(path, line_number, fields[4])?;
+    check_field_is(path, line_number, fields[5], "VALUE")?;
+    let value = parse_rgb(path, line_number, fields[6])?;
+    check_field_is(path, line_number, fields[7], "EDGE")?;
+    let edge = parse_color_ref(path, line_number, fields[8])?;
 
     // Next unparsed field.
     let mut index: usize = 9;
@@ -753,7 +753,7 @@ fn parse_meta_color(path: &Path,
         });
     } else {
         index += 2;
-        Some(try!(parse_u8(path, line_number, fields[index - 1])))
+        Some(parse_u8(path, line_number, fields[index - 1])?)
     };
 
     // Optionally parse LUMINANCE <luminance>.
@@ -767,7 +767,7 @@ fn parse_meta_color(path: &Path,
         });
     } else {
         index += 2;
-        Some(try!(parse_u8(path, line_number, fields[index - 1])))
+        Some(parse_u8(path, line_number, fields[index - 1])?)
     };
 
     // Optionally parse finishes.
@@ -790,10 +790,10 @@ fn parse_meta_color(path: &Path,
         Some(Finish::Metal)
     } else if fields[index] == "MATERIAL" {
         index += 1;
-        Some(Finish::Material(try!(parse_color_material(path,
-                                                        line_number,
-                                                        &fields,
-                                                        &mut index))))
+        Some(Finish::Material(parse_color_material(path,
+                                                   line_number,
+                                                   &fields,
+                                                   &mut index)?))
     } else {
         None
     };
@@ -832,7 +832,7 @@ fn parse_meta_file(path: &Path,
                    line_number: u32,
                    fields: Vec<&str>)
     -> ParseResult1<Meta> {
-    try!(check_fields_eq(path, line_number, &fields, 3));
+    check_fields_eq(path, line_number, &fields, 3)?;
     Ok(Meta::File(fields[2].to_string()))
 }
 
@@ -873,11 +873,11 @@ fn parse_meta_file_type(path: &Path,
         Officiality::Unofficial
     } else {
         // fields[1] == "Official"
-        try!(check_field_get_and(path,
-                                 line_number,
-                                 &fields,
-                                 2,
-                                 |p, l, f| check_field_is(p, l, f, "LCAD")));
+        check_field_get_and(path,
+                            line_number,
+                            &fields,
+                            2,
+                            |p, l, f| check_field_is(p, l, f, "LCAD"))?;
         index = 3;
         Officiality::LDrawOfficial
     };
@@ -895,7 +895,7 @@ fn parse_meta_file_type(path: &Path,
     } else if fields[index]
         .starts_with("Unofficial_") {
         officiality = Officiality::Unofficial;
-        let contents_field = fields[index].trim_left_matches("Unofficial_");
+        let contents_field = fields[index].trim_start_matches("Unofficial_");
         match CONTENTS.get(contents_field) {
             Some(contents) => Some(*contents),
             None => {
@@ -962,7 +962,7 @@ fn parse_meta_file_type(path: &Path,
             });
         }
         index += 1;
-        Some(try!(parse_update_tag(path, line_number, fields[index - 1])))
+        Some(parse_update_tag(path, line_number, fields[index - 1])?)
     } else {
         if officiality == Officiality::LDrawOfficial {
             return Err(ParseError {
@@ -1061,7 +1061,7 @@ fn parse_meta_keywords(path: &Path,
                        line_number: u32,
                        fields: Vec<&str>)
     -> ParseResult1<Meta> {
-    try!(check_fields_ge(path, line_number, &fields, 3));
+    check_fields_ge(path, line_number, &fields, 3)?;
     let keywords: Vec<String> = fields[2..fields.len()]
         .join(" ")
         .split(',')
@@ -1186,13 +1186,13 @@ fn parse_subfile_statement(path: &Path,
                            line_number: u32,
                            fields: Vec<&str>)
     -> ParseResult1<Statement> {
-    type RawMatrix = NAMatrix<f64, U4, U4, MatrixArray<f64, U4, U4>>;
-    try!(check_fields_eq(path, line_number, &fields, 15));
-    let color_ref = try!(parse_color_ref(path, line_number, fields[1]));
-    let origin = try!(map_result_monad(|f| parse_f64(path, line_number, f),
-                                       &fields[2..5]));
-    let transform = try!(map_result_monad(|f| parse_f64(path, line_number, f),
-                                          &fields[5..14]));
+    type RawMatrix = NAMatrix<f64, U4, U4, ArrayStorage<f64, U4, U4>>;
+    check_fields_eq(path, line_number, &fields, 15)?;
+    let color_ref = parse_color_ref(path, line_number, fields[1])?;
+    let origin = map_result_monad(|f| parse_f64(path, line_number, f),
+                                  &fields[2..5])?;
+    let transform = map_result_monad(|f| parse_f64(path, line_number, f),
+                                     &fields[5..14])?;
     let raw_matrix = RawMatrix::new(
         transform[0], transform[1], transform[2], origin[0],
         transform[3], transform[4], transform[5], origin[1],
@@ -1211,11 +1211,11 @@ fn parse_line_statement(path: &Path,
                         line_number: u32,
                         fields: Vec<&str>)
     -> ParseResult1<Statement> {
-    try!(check_fields_eq(path, line_number, &fields, 8));
-    let color_ref = try!(parse_color_ref(path, line_number, fields[1]));
+    check_fields_eq(path, line_number, &fields, 8)?;
+    let color_ref = parse_color_ref(path, line_number, fields[1])?;
     let coordinates =
-        try!(map_result_monad(|f| parse_f64(path, line_number, f),
-                              &fields[2..8]));
+        map_result_monad(|f| parse_f64(path, line_number, f),
+                         &fields[2..8])?;
     let a = Point::new(coordinates[0], coordinates[1], coordinates[2]);
     let b = Point::new(coordinates[3], coordinates[4], coordinates[5]);
     Ok(Statement::Line { color: color_ref, line: Line { a: a, b: b } })
@@ -1226,11 +1226,11 @@ fn parse_triangle_statement(path: &Path,
                             line_number: u32,
                             fields: Vec<&str>)
     -> ParseResult1<Statement> {
-    try!(check_fields_eq(path, line_number, &fields, 11));
-    let color_ref = try!(parse_color_ref(path, line_number, fields[1]));
+    check_fields_eq(path, line_number, &fields, 11)?;
+    let color_ref = parse_color_ref(path, line_number, fields[1])?;
     let coordinates =
-        try!(map_result_monad(|f| parse_f64(path, line_number, f),
-                              &fields[2..11]));
+        map_result_monad(|f| parse_f64(path, line_number, f),
+                         &fields[2..11])?;
     let a = Point::new(coordinates[0], coordinates[1], coordinates[2]);
     let b = Point::new(coordinates[3], coordinates[4], coordinates[5]);
     let c = Point::new(coordinates[6], coordinates[7], coordinates[8]);
@@ -1245,11 +1245,11 @@ fn parse_quad_statement(path: &Path,
                         line_number: u32,
                         fields: Vec<&str>)
     -> ParseResult1<Statement> {
-    try!(check_fields_eq(path, line_number, &fields, 14));
-    let color_ref = try!(parse_color_ref(path, line_number, fields[1]));
+    check_fields_eq(path, line_number, &fields, 14)?;
+    let color_ref = parse_color_ref(path, line_number, fields[1])?;
     let coordinates =
-        try!(map_result_monad(|f| parse_f64(path, line_number, f),
-                              &fields[2..14]));
+        map_result_monad(|f| parse_f64(path, line_number, f),
+                         &fields[2..14])?;
     let a = Point::new(coordinates[0], coordinates[1], coordinates[2]);
     let b = Point::new(coordinates[3], coordinates[4], coordinates[5]);
     let c = Point::new(coordinates[6], coordinates[7], coordinates[8]);
@@ -1265,11 +1265,11 @@ fn parse_optional_line_statement(path: &Path,
                                  line_number: u32,
                                  fields: Vec<&str>)
     -> ParseResult1<Statement> {
-    try!(check_fields_eq(path, line_number, &fields, 14));
-    let color_ref = try!(parse_color_ref(path, line_number, fields[1]));
+    check_fields_eq(path, line_number, &fields, 14)?;
+    let color_ref = parse_color_ref(path, line_number, fields[1])?;
     let coordinates =
-        try!(map_result_monad(|f| parse_f64(path, line_number, f),
-                              &fields[2..14]));
+        map_result_monad(|f| parse_f64(path, line_number, f),
+                         &fields[2..14])?;
     let a = Point::new(coordinates[0], coordinates[1], coordinates[2]);
     let b = Point::new(coordinates[3], coordinates[4], coordinates[5]);
     let c_a = Point::new(coordinates[6], coordinates[7], coordinates[8]);
