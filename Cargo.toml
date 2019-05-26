@@ -23,11 +23,13 @@ authors = ["Edgar Gonzàlez Pellicer <edgar.gip@gmail.com>"]
 edition = "2018"
 
 [dependencies]
-kiss3d = "*"
 lazy_static = "*"
 nalgebra = "*"
 phf = { version = "*", features = ["macros"] }
 regex = "*"
+
+[dev-dependencies]
+kiss3d = "*"
 
 # Local Variables:
 # coding: utf-8
