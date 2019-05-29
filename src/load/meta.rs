@@ -16,322 +16,66 @@
 // You should have received a copy of the GNU General Public License
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
 
-//! Loading of LDraw files.
+//! Loading of LDraw files: Meta statements.
 
-use na::convert_unchecked;
-use na::core::dimension::U4;
-use na::core::{ArrayStorage, Matrix as NAMatrix};
 use phf::{self, phf_map};
 use regex::Regex;
 use std::f64;
-use std::fs::File;
-use std::io::{BufRead, BufReader, Error as IoError, Result as IoResult};
-use std::num::{ParseFloatError, ParseIntError};
-use std::path::{Path, PathBuf};
+use std::path::Path;
 use std::str::FromStr;
 
-use super::file::*;
-use super::types::*;
+use super::super::file::*;
+use super::super::types::{Color, Finish, Glitter, Material, RotationSense, Speckle};
 
-/// Parse error.
-#[derive(Debug)]
-pub struct ParseError {
-    pub path: PathBuf,
-    pub line_number: u32,
-    pub error: String,
-}
+use super::base::{self, ParseError, ParseResult1};
 
-/// Result of a parsing operation.
-pub type ParseResult<T> = Result<T, Vec<ParseError>>;
-
-/// Internal version of `ParseResult` when at most 1 error is expected.
-type ParseResult1<T> = Result<T, ParseError>;
-
-/// Loads an LDraw file from a stream.
-pub fn load_ldraw(path: &Path) -> ParseResult<LDFile> {
-    // Open the file and create a reader for it.
-    let file = File::open(&path).map_err(|err: IoError| {
-        vec![ParseError {
-            path: path.to_path_buf(),
-            line_number: 0,
-            error: format!("Can't open {} for reading: {}", path.display(), err),
-        }]
-    })?;
-    let mut reader = BufReader::new(file);
-
-    // Resulting sets of statements and errors.
-    let mut statements = Vec::new();
-    let mut errors = Vec::new();
-
-    // Read and process line by line.
-    let mut current_line_number = 1;
-    let mut current_line = String::new();
-    let mut current_result = reader.read_line(&mut current_line);
-    while read_line_is_ok(&current_result) {
-        current_line = current_line
-            .chars()
-            .take_while(|c| *c != '\r' && *c != '\n')
-            .collect();
-        match process_line(path, current_line_number, &current_line) {
-            Ok(None) => (),
-            Ok(Some(statement)) => statements.push(statement),
-            Err(err) => errors.push(err),
-        }
-        current_line_number += 1;
-        current_line.clear();
-        current_result = reader.read_line(&mut current_line);
-    }
-
-    // Append an error if we exited the loop because of a failure in
-    // `read_line`.
-    if let Err(err) = current_result {
-        errors.push(ParseError {
-            path: path.to_path_buf(),
-            line_number: current_line_number,
-            error: format!("Can't read line: {}", err),
-        })
-    }
-
-    // Return success if no errors were found, failure otherwise.
-    if errors.is_empty() {
-        Ok(LDFile {
-            statements: statements,
-        })
-    } else {
-        Err(errors)
-    }
-}
-
-/// Returns true if the result of a `read_line` operation succeeded.
-fn read_line_is_ok(result: &IoResult<usize>) -> bool {
-    match *result {
-        Ok(count) => count > 0,
-        Err(_) => false,
-    }
-}
-
-/// Processes a line of an LDraw file.
-fn process_line(path: &Path, line_number: u32, line: &String) -> ParseResult1<Option<Statement>> {
-    // Split the line into fields.
-    let fields: Vec<&str> = line
-        .split(|c| c == ' ' || c == '\t')
-        .filter(|f| !f.is_empty())
-        .collect();
-    if fields.is_empty() {
-        return Ok(None);
-    }
-
-    // Dispatch according to the line type.
-    let line_type = parse_u8(path, line_number, fields[0])?;
-    match line_type {
-        0 => parse_meta_statement(path, line_number, fields),
-        1 => parse_subfile_statement(path, line_number, fields),
-        2 => parse_line_statement(path, line_number, fields),
-        3 => parse_triangle_statement(path, line_number, fields),
-        4 => parse_quad_statement(path, line_number, fields),
-        5 => parse_optional_line_statement(path, line_number, fields),
-        _ => Err(ParseError {
-            path: path.to_path_buf(),
-            line_number: line_number,
-            error: format!("Invalid line type {}", line_type),
-        }),
-    }
-    .map(Some)
-}
-
-/// Maps a function over a container on the Result monad.
-fn map_result_monad<F, I, O, E>(func: F, inputs: I) -> Result<Vec<O>, E>
-where
-    I: IntoIterator,
-    F: Fn(I::Item) -> Result<O, E>,
-{
-    let mut vec = Vec::new();
-    for input in inputs {
-        vec.push(func(input)?);
-    }
-    Ok(vec)
-}
-
-/// Verifies that a field in a line matches a keyword'.
-fn check_field_is(path: &Path, line_number: u32, field: &str, keyword: &str) -> ParseResult1<()> {
-    if field != keyword {
-        Err(ParseError {
-            path: path.to_path_buf(),
-            line_number: line_number,
-            error: format!(
-                "Found \"{}\" as field where \"{}\" was expected",
-                field, keyword
-            ),
-        })
-    } else {
-        Ok(())
-    }
-}
-
-/// Verifies that the number of fields in a line is exactly 'n'.
-fn check_fields_eq(
+/// Parse a line containing a Meta statement.
+pub fn parse_meta_statement(
     path: &Path,
     line_number: u32,
-    fields: &Vec<&str>,
-    n: usize,
-) -> ParseResult1<()> {
-    if fields.len() != n {
-        Err(ParseError {
-            path: path.to_path_buf(),
-            line_number: line_number,
-            error: format!("Line has {} fields: expected {}", fields.len(), n),
-        })
-    } else {
-        Ok(())
-    }
-}
-
-/// Verifies that the number of fields in a line is at least 'n'.
-fn check_fields_ge(
-    path: &Path,
-    line_number: u32,
-    fields: &Vec<&str>,
-    n: usize,
-) -> ParseResult1<()> {
-    if fields.len() < n {
-        Err(ParseError {
-            path: path.to_path_buf(),
-            line_number: line_number,
-            error: format!("Line has {} fields: expected at least {}", fields.len(), n),
-        })
-    } else {
-        Ok(())
-    }
-}
-
-/// Verifies that the number of fields in a line is at most 'n'.
-fn check_fields_le(
-    path: &Path,
-    line_number: u32,
-    fields: &Vec<&str>,
-    n: usize,
-) -> ParseResult1<()> {
-    if fields.len() > n {
-        Err(ParseError {
-            path: path.to_path_buf(),
-            line_number: line_number,
-            error: format!("Line has {} fields: expected at most {}", fields.len(), n),
-        })
-    } else {
-        Ok(())
-    }
-}
-
-/// Verifies that a field in a line exists and returns it.
-fn check_field_get<'a>(
-    path: &Path,
-    line_number: u32,
-    fields: &Vec<&'a str>,
-    index: usize,
-) -> ParseResult1<&'a str> {
-    if fields.len() < index {
-        Err(ParseError {
-            path: path.to_path_buf(),
-            line_number: line_number,
-            error: format!(
-                "Line has {} fields: expected at least {}",
-                fields.len(),
-                index
-            ),
-        })
-    } else {
-        Ok(fields[index])
-    }
-}
-
-/// Verifies that a field in a line exists and can be parsed.
-fn check_field_get_and<F, O>(
-    path: &Path,
-    line_number: u32,
-    fields: &Vec<&str>,
-    index: usize,
-    parser: F,
-) -> ParseResult1<O>
-where
-    F: Fn(&Path, u32, &str) -> ParseResult1<O>,
-{
-    if fields.len() < index {
-        Err(ParseError {
-            path: path.to_path_buf(),
-            line_number: line_number,
-            error: format!(
-                "Line has {} fields: expected at least {}",
-                fields.len(),
-                index
-            ),
-        })
-    } else {
-        parser(path, line_number, fields[index])
-    }
-}
-
-/// Parses an 8-bit integer.
-fn parse_u8(path: &Path, line_number: u32, field: &str) -> ParseResult1<u8> {
-    u8::from_str_radix(field, 10).map_err(|err: ParseIntError| ParseError {
-        path: path.to_path_buf(),
-        line_number: line_number,
-        error: format!("Can't parse \"{}\" as integer: {}", field, err),
-    })
-}
-
-/// Parses an 16-bit integer.
-fn parse_u16(path: &Path, line_number: u32, field: &str) -> ParseResult1<u16> {
-    u16::from_str_radix(field, 10).map_err(|err: ParseIntError| ParseError {
-        path: path.to_path_buf(),
-        line_number: line_number,
-        error: format!("Can't parse \"{}\" as integer: {}", field, err),
-    })
-}
-
-/// Parses a 64-bit float.
-fn parse_f64(path: &Path, line_number: u32, field: &str) -> ParseResult1<f64> {
-    f64::from_str(field).map_err(|err: ParseFloatError| ParseError {
-        path: path.to_path_buf(),
-        line_number: line_number,
-        error: format!("Can't parse \"{}\" as float: {}", field, err),
-    })
-}
-
-/// Parses an RGB color.
-fn parse_rgb(path: &Path, line_number: u32, field: &str) -> ParseResult1<RGB> {
-    lazy_static! {
-        static ref RGB_RE: Regex =
-            Regex::new(r"^(?:#|0x2)([[:xdigit:]]{2})([[:xdigit:]]{2})([[:xdigit:]]{2})$").unwrap();
-    }
-    let captures = match RGB_RE.captures(&field) {
-        None => {
-            return Err(ParseError {
-                path: path.to_path_buf(),
-                line_number: line_number,
-                error: format!("Can't parse \"{}\" as RGB color", field),
-            });
-        }
-        Some(captures) => captures,
+    fields: Vec<&str>,
+) -> ParseResult1<Statement> {
+    type MetaParser = fn(&Path, u32, Vec<&str>) -> ParseResult1<Meta>;
+    static META_KEYWORDS: phf::Map<&'static str, &'static MetaParser> = phf_map! {
+        "!CATEGORY" => &(parse_meta_category as MetaParser),
+        "!CMDLINE" => &(parse_meta_cmdline as MetaParser),
+        "!COLOUR" => &(parse_meta_color as MetaParser),
+        "!HELP" => &(parse_meta_help as MetaParser),
+        "!HISTORY" => &(parse_meta_history as MetaParser),
+        "!KEYWORDS" => &(parse_meta_keywords as MetaParser),
+        "!LDRAW_ORG" => &(parse_meta_file_type as MetaParser),
+        "!LICENSE" => &(parse_meta_license as MetaParser),
+        "//" => &(parse_meta_comment as MetaParser),
+        "Author:" => &(parse_meta_author as MetaParser),
+        "BFC" => &(parse_meta_bfc as MetaParser),
+        "CLEAR" => &(parse_meta_clear as MetaParser),
+        "FILE" => &(parse_meta_file as MetaParser),
+        "LDRAW_ORG" => &(parse_meta_file_type as MetaParser),
+        "Name:" => &(parse_meta_name as MetaParser),
+        "NOFILE" => &(parse_meta_nofile as MetaParser),
+        "Official" => &(parse_meta_file_type as MetaParser),
+        "PAUSE" => &(parse_meta_pause as MetaParser),
+        "SAVE" => &(parse_meta_save as MetaParser),
+        "STEP" => &(parse_meta_step as MetaParser),
+        "Unofficial" => &(parse_meta_file_type as MetaParser),
+        "Un-official" => &(parse_meta_file_type as MetaParser),
+        "WRITE" => &(parse_meta_print as MetaParser),
     };
-    let red = u8::from_str_radix(captures.get(1).unwrap().as_str(), 16).unwrap();
-    let green = u8::from_str_radix(captures.get(2).unwrap().as_str(), 16).unwrap();
-    let blue = u8::from_str_radix(captures.get(3).unwrap().as_str(), 16).unwrap();
-    Ok(RGB(red, green, blue))
-}
 
-/// Parses a color reference.
-fn parse_color_ref(path: &Path, line_number: u32, field: &str) -> ParseResult1<ColorRef> {
-    if let Ok(index) = u16::from_str_radix(field, 10) {
-        return Ok(ColorRef::Indexed(index));
+    if fields.len() < 2 {
+        return Ok(Statement::Meta(Meta::Empty));
     }
-    if let Ok(rgb) = parse_rgb(path, line_number, field) {
-        return Ok(ColorRef::RGB(rgb));
+    match META_KEYWORDS.get(fields[1]) {
+        Some(handler) => handler(path, line_number, fields).map(Statement::Meta),
+        None => {
+            let meta = if line_number == 1 {
+                Meta::Description
+            } else {
+                Meta::Unknown
+            };
+            Ok(Statement::Meta(meta(fields[1..fields.len()].join(" "))))
+        }
     }
-    Err(ParseError {
-        path: path.to_path_buf(),
-        line_number: line_number,
-        error: format!("Can't parse \"{}\" as color reference", field),
-    })
 }
 
 /// Parses an update tag.
@@ -392,7 +136,7 @@ fn parse_meta_argumentless(
     fields: Vec<&str>,
     meta: Meta,
 ) -> ParseResult1<Meta> {
-    check_fields_eq(path, line_number, &fields, 2)?;
+    base::check_fields_eq(path, line_number, &fields, 2)?;
     Ok(meta)
 }
 
@@ -403,7 +147,7 @@ fn parse_meta_full_line(
     fields: Vec<&str>,
     meta_constructor: fn(String) -> Meta,
 ) -> ParseResult1<Meta> {
-    check_fields_ge(path, line_number, &fields, 2)?;
+    base::check_fields_ge(path, line_number, &fields, 2)?;
     Ok(meta_constructor(fields[2..fields.len()].join(" ")))
 }
 
@@ -414,12 +158,12 @@ fn parse_meta_author(path: &Path, line_number: u32, fields: Vec<&str>) -> ParseR
 
 /// Parse a line containing an BFC Meta statement.
 fn parse_meta_bfc(path: &Path, line_number: u32, fields: Vec<&str>) -> ParseResult1<Meta> {
-    check_fields_ge(path, line_number, &fields, 3)?;
+    base::check_fields_ge(path, line_number, &fields, 3)?;
     let bfc = if fields[2] == "NOCERTIFY" {
-        check_fields_eq(path, line_number, &fields, 3)?;
+        base::check_fields_eq(path, line_number, &fields, 3)?;
         BFCDeclaration::NoCertify
     } else if fields[2] == "CERTIFY" {
-        check_fields_le(path, line_number, &fields, 4)?;
+        base::check_fields_le(path, line_number, &fields, 4)?;
         if fields.len() == 3 || fields[3] == "CCW" {
             BFCDeclaration::Certify(RotationSense::CCW)
         } else if fields[3] == "CW" {
@@ -432,7 +176,7 @@ fn parse_meta_bfc(path: &Path, line_number: u32, fields: Vec<&str>) -> ParseResu
             });
         }
     } else if fields[2] == "CW" {
-        check_fields_le(path, line_number, &fields, 4)?;
+        base::check_fields_le(path, line_number, &fields, 4)?;
         if fields.len() == 3 {
             BFCDeclaration::Rotation(RotationSense::CW)
         } else if fields[3] == "CLIP" {
@@ -448,7 +192,7 @@ fn parse_meta_bfc(path: &Path, line_number: u32, fields: Vec<&str>) -> ParseResu
             });
         }
     } else if fields[2] == "CCW" {
-        check_fields_le(path, line_number, &fields, 4)?;
+        base::check_fields_le(path, line_number, &fields, 4)?;
         if fields.len() == 3 {
             BFCDeclaration::Rotation(RotationSense::CCW)
         } else if fields[3] == "CLIP" {
@@ -464,7 +208,7 @@ fn parse_meta_bfc(path: &Path, line_number: u32, fields: Vec<&str>) -> ParseResu
             });
         }
     } else if fields[2] == "CLIP" {
-        check_fields_le(path, line_number, &fields, 4)?;
+        base::check_fields_le(path, line_number, &fields, 4)?;
         if fields.len() == 3 {
             BFCDeclaration::Clip(None)
         } else if fields[3] == "CCW" {
@@ -479,10 +223,10 @@ fn parse_meta_bfc(path: &Path, line_number: u32, fields: Vec<&str>) -> ParseResu
             });
         }
     } else if fields[2] == "NOCLIP" {
-        check_fields_eq(path, line_number, &fields, 3)?;
+        base::check_fields_eq(path, line_number, &fields, 3)?;
         BFCDeclaration::NoClip
     } else if fields[2] == "INVERTNEXT" {
-        check_fields_eq(path, line_number, &fields, 3)?;
+        base::check_fields_eq(path, line_number, &fields, 3)?;
         BFCDeclaration::InvertNext
     } else {
         return Err(ParseError {
@@ -509,7 +253,7 @@ fn parse_meta_clear(path: &Path, line_number: u32, fields: Vec<&str>) -> ParseRe
 
 /// Parse a line containing a !CMDLINE Meta statement.
 fn parse_meta_cmdline(path: &Path, line_number: u32, fields: Vec<&str>) -> ParseResult1<Meta> {
-    check_fields_ge(path, line_number, &fields, 3)?;
+    base::check_fields_ge(path, line_number, &fields, 3)?;
     Ok(Meta::CmdLine(
         fields[2..fields.len()]
             .iter()
@@ -537,10 +281,11 @@ fn parse_color_material(
         *index += 1;
 
         // Parse VALUE <value>.
-        check_field_get_and(path, line_number, &fields, *index, |p, l, f| {
-            check_field_is(p, l, f, "VALUE")
+        base::check_field_get_and(path, line_number, &fields, *index, |p, l, f| {
+            base::check_field_is(p, l, f, "VALUE")
         })?;
-        let value = check_field_get_and(path, line_number, fields, *index + 1, &parse_rgb)?;
+        let value =
+            base::check_field_get_and(path, line_number, fields, *index + 1, &base::parse_rgb)?;
         *index += 2;
 
         // Optionally parse ALPHA <alpha>.
@@ -554,7 +299,7 @@ fn parse_color_material(
             });
         } else {
             *index += 2;
-            Some(parse_u8(path, line_number, fields[*index - 1])?)
+            Some(base::parse_u8(path, line_number, fields[*index - 1])?)
         };
 
         // Optionally parse LUMINANCE <luminance>.
@@ -568,14 +313,15 @@ fn parse_color_material(
             });
         } else {
             *index += 2;
-            Some(parse_u8(path, line_number, fields[*index - 1])?)
+            Some(base::parse_u8(path, line_number, fields[*index - 1])?)
         };
 
         // Parse FRACTION <fraction>.
-        check_field_get_and(path, line_number, &fields, *index, |p, l, f| {
-            check_field_is(p, l, f, "FRACTION")
+        base::check_field_get_and(path, line_number, &fields, *index, |p, l, f| {
+            base::check_field_is(p, l, f, "FRACTION")
         })?;
-        let fraction = check_field_get_and(path, line_number, fields, *index + 1, &parse_f64)?;
+        let fraction =
+            base::check_field_get_and(path, line_number, fields, *index + 1, &base::parse_f64)?;
         if fraction < 0.0 || fraction > 1.0 {
             return Err(ParseError {
                 path: path.to_path_buf(),
@@ -587,11 +333,11 @@ fn parse_color_material(
 
         // Parse VFRACTION <v_fraction> if the material is GLITTER.
         let v_fraction = if fields[start_index] == "GLITTER" {
-            check_field_get_and(path, line_number, &fields, *index, |p, l, f| {
-                check_field_is(p, l, f, "VFRACTION")
+            base::check_field_get_and(path, line_number, &fields, *index, |p, l, f| {
+                base::check_field_is(p, l, f, "VFRACTION")
             })?;
             let v_fraction =
-                check_field_get_and(path, line_number, fields, *index + 1, &parse_f64)?;
+                base::check_field_get_and(path, line_number, fields, *index + 1, &base::parse_f64)?;
             if v_fraction < 0.0 || v_fraction > 1.0 {
                 return Err(ParseError {
                     path: path.to_path_buf(),
@@ -610,17 +356,20 @@ fn parse_color_material(
         };
 
         // Parse SIZE <size> | MINSIZE <min_size> MAXSIZE <max_size>.
-        let size_kw = check_field_get(path, line_number, &fields, *index)?;
+        let size_kw = base::check_field_get(path, line_number, &fields, *index)?;
         let size = if size_kw == "SIZE" {
-            let size = check_field_get_and(path, line_number, fields, *index + 1, &parse_u8)?;
+            let size =
+                base::check_field_get_and(path, line_number, fields, *index + 1, &base::parse_u8)?;
             *index += 2;
             (size, size)
         } else if size_kw == "MINSIZE" {
-            let minsize = check_field_get_and(path, line_number, fields, *index + 1, &parse_u8)?;
-            check_field_get_and(path, line_number, &fields, *index + 2, |p, l, f| {
-                check_field_is(p, l, f, "MAXSIZE")
+            let minsize =
+                base::check_field_get_and(path, line_number, fields, *index + 1, &base::parse_u8)?;
+            base::check_field_get_and(path, line_number, &fields, *index + 2, |p, l, f| {
+                base::check_field_is(p, l, f, "MAXSIZE")
             })?;
-            let maxsize = check_field_get_and(path, line_number, fields, *index + 3, &parse_u8)?;
+            let maxsize =
+                base::check_field_get_and(path, line_number, fields, *index + 3, &base::parse_u8)?;
             *index += 4;
             (minsize, maxsize)
         } else {
@@ -667,16 +416,16 @@ fn parse_color_material(
 
 /// Parse a line containing a !COLOUR Meta statement.
 fn parse_meta_color(path: &Path, line_number: u32, fields: Vec<&str>) -> ParseResult1<Meta> {
-    check_fields_ge(path, line_number, &fields, 9)?;
+    base::check_fields_ge(path, line_number, &fields, 9)?;
 
     // Parse <name> CODE <code> VALUE <value> EDGE <edge>.
     let name = fields[2].to_string();
-    check_field_is(path, line_number, fields[3], "CODE")?;
-    let code = parse_u16(path, line_number, fields[4])?;
-    check_field_is(path, line_number, fields[5], "VALUE")?;
-    let value = parse_rgb(path, line_number, fields[6])?;
-    check_field_is(path, line_number, fields[7], "EDGE")?;
-    let edge = parse_color_ref(path, line_number, fields[8])?;
+    base::check_field_is(path, line_number, fields[3], "CODE")?;
+    let code = base::parse_u16(path, line_number, fields[4])?;
+    base::check_field_is(path, line_number, fields[5], "VALUE")?;
+    let value = base::parse_rgb(path, line_number, fields[6])?;
+    base::check_field_is(path, line_number, fields[7], "EDGE")?;
+    let edge = base::parse_color_ref(path, line_number, fields[8])?;
 
     // Next unparsed field.
     let mut index: usize = 9;
@@ -692,7 +441,7 @@ fn parse_meta_color(path: &Path, line_number: u32, fields: Vec<&str>) -> ParseRe
         });
     } else {
         index += 2;
-        Some(parse_u8(path, line_number, fields[index - 1])?)
+        Some(base::parse_u8(path, line_number, fields[index - 1])?)
     };
 
     // Optionally parse LUMINANCE <luminance>.
@@ -706,7 +455,7 @@ fn parse_meta_color(path: &Path, line_number: u32, fields: Vec<&str>) -> ParseRe
         });
     } else {
         index += 2;
-        Some(parse_u8(path, line_number, fields[index - 1])?)
+        Some(base::parse_u8(path, line_number, fields[index - 1])?)
     };
 
     // Optionally parse finishes.
@@ -769,7 +518,7 @@ fn parse_meta_comment(path: &Path, line_number: u32, fields: Vec<&str>) -> Parse
 
 /// Parse a line containing a FILE Meta statement.
 fn parse_meta_file(path: &Path, line_number: u32, fields: Vec<&str>) -> ParseResult1<Meta> {
-    check_fields_eq(path, line_number, &fields, 3)?;
+    base::check_fields_eq(path, line_number, &fields, 3)?;
     Ok(Meta::File(fields[2].to_string()))
 }
 
@@ -805,8 +554,8 @@ fn parse_meta_file_type(path: &Path, line_number: u32, fields: Vec<&str>) -> Par
         Officiality::Unofficial
     } else {
         // fields[1] == "Official"
-        check_field_get_and(path, line_number, &fields, 2, |p, l, f| {
-            check_field_is(p, l, f, "LCAD")
+        base::check_field_get_and(path, line_number, &fields, 2, |p, l, f| {
+            base::check_field_is(p, l, f, "LCAD")
         })?;
         index = 3;
         Officiality::LDrawOfficial
@@ -979,7 +728,7 @@ fn parse_meta_history(path: &Path, line_number: u32, fields: Vec<&str>) -> Parse
 
 /// Parse a line containing a !KEYWORDS Meta statement.
 fn parse_meta_keywords(path: &Path, line_number: u32, fields: Vec<&str>) -> ParseResult1<Meta> {
-    check_fields_ge(path, line_number, &fields, 3)?;
+    base::check_fields_ge(path, line_number, &fields, 3)?;
     let keywords: Vec<String> = fields[2..fields.len()]
         .join(" ")
         .split(',')
@@ -1023,171 +772,6 @@ fn parse_meta_save(path: &Path, line_number: u32, fields: Vec<&str>) -> ParseRes
 /// Parse a line containing a STEP Meta statement.
 fn parse_meta_step(path: &Path, line_number: u32, fields: Vec<&str>) -> ParseResult1<Meta> {
     parse_meta_argumentless(path, line_number, fields, Meta::Step)
-}
-
-/// Parse a line containing a Meta statement.
-fn parse_meta_statement(
-    path: &Path,
-    line_number: u32,
-    fields: Vec<&str>,
-) -> ParseResult1<Statement> {
-    type MetaParser = fn(&Path, u32, Vec<&str>) -> ParseResult1<Meta>;
-    static META_KEYWORDS: phf::Map<&'static str, &'static MetaParser> = phf_map! {
-        "!CATEGORY" => &(parse_meta_category as MetaParser),
-        "!CMDLINE" => &(parse_meta_cmdline as MetaParser),
-        "!COLOUR" => &(parse_meta_color as MetaParser),
-        "!HELP" => &(parse_meta_help as MetaParser),
-        "!HISTORY" => &(parse_meta_history as MetaParser),
-        "!KEYWORDS" => &(parse_meta_keywords as MetaParser),
-        "!LDRAW_ORG" => &(parse_meta_file_type as MetaParser),
-        "!LICENSE" => &(parse_meta_license as MetaParser),
-        "//" => &(parse_meta_comment as MetaParser),
-        "Author:" => &(parse_meta_author as MetaParser),
-        "BFC" => &(parse_meta_bfc as MetaParser),
-        "CLEAR" => &(parse_meta_clear as MetaParser),
-        "FILE" => &(parse_meta_file as MetaParser),
-        "LDRAW_ORG" => &(parse_meta_file_type as MetaParser),
-        "Name:" => &(parse_meta_name as MetaParser),
-        "NOFILE" => &(parse_meta_nofile as MetaParser),
-        "Official" => &(parse_meta_file_type as MetaParser),
-        "PAUSE" => &(parse_meta_pause as MetaParser),
-        "SAVE" => &(parse_meta_save as MetaParser),
-        "STEP" => &(parse_meta_step as MetaParser),
-        "Unofficial" => &(parse_meta_file_type as MetaParser),
-        "Un-official" => &(parse_meta_file_type as MetaParser),
-        "WRITE" => &(parse_meta_print as MetaParser),
-    };
-
-    if fields.len() < 2 {
-        return Ok(Statement::Meta(Meta::Empty));
-    }
-    match META_KEYWORDS.get(fields[1]) {
-        Some(handler) => handler(path, line_number, fields).map(Statement::Meta),
-        None => {
-            let meta = if line_number == 1 {
-                Meta::Description
-            } else {
-                Meta::Unknown
-            };
-            Ok(Statement::Meta(meta(fields[1..fields.len()].join(" "))))
-        }
-    }
-}
-
-/// Parse a line containing a Subfile statement.
-fn parse_subfile_statement(
-    path: &Path,
-    line_number: u32,
-    fields: Vec<&str>,
-) -> ParseResult1<Statement> {
-    type RawMatrix = NAMatrix<f64, U4, U4, ArrayStorage<f64, U4, U4>>;
-    check_fields_eq(path, line_number, &fields, 15)?;
-    let color_ref = parse_color_ref(path, line_number, fields[1])?;
-    let origin = map_result_monad(|f| parse_f64(path, line_number, f), &fields[2..5])?;
-    let transform = map_result_monad(|f| parse_f64(path, line_number, f), &fields[5..14])?;
-    let raw_matrix = RawMatrix::new(
-        transform[0],
-        transform[1],
-        transform[2],
-        origin[0],
-        transform[3],
-        transform[4],
-        transform[5],
-        origin[1],
-        transform[6],
-        transform[7],
-        transform[8],
-        origin[2],
-        0.0,
-        0.0,
-        0.0,
-        1.0,
-    );
-    let matrix: Matrix = unsafe { convert_unchecked(raw_matrix) };
-    Ok(Statement::Subfile {
-        color: color_ref,
-        matrix: matrix,
-        file: PathBuf::from(fields[14].replace('\\', "/").to_lowercase()),
-    })
-}
-
-/// Parse a line containing a Line statement.
-fn parse_line_statement(
-    path: &Path,
-    line_number: u32,
-    fields: Vec<&str>,
-) -> ParseResult1<Statement> {
-    check_fields_eq(path, line_number, &fields, 8)?;
-    let color_ref = parse_color_ref(path, line_number, fields[1])?;
-    let coordinates = map_result_monad(|f| parse_f64(path, line_number, f), &fields[2..8])?;
-    let a = Point::new(coordinates[0], coordinates[1], coordinates[2]);
-    let b = Point::new(coordinates[3], coordinates[4], coordinates[5]);
-    Ok(Statement::Line {
-        color: color_ref,
-        line: Line { a: a, b: b },
-    })
-}
-
-/// Parse a line containing a Triangle statement.
-fn parse_triangle_statement(
-    path: &Path,
-    line_number: u32,
-    fields: Vec<&str>,
-) -> ParseResult1<Statement> {
-    check_fields_eq(path, line_number, &fields, 11)?;
-    let color_ref = parse_color_ref(path, line_number, fields[1])?;
-    let coordinates = map_result_monad(|f| parse_f64(path, line_number, f), &fields[2..11])?;
-    let a = Point::new(coordinates[0], coordinates[1], coordinates[2]);
-    let b = Point::new(coordinates[3], coordinates[4], coordinates[5]);
-    let c = Point::new(coordinates[6], coordinates[7], coordinates[8]);
-    Ok(Statement::Triangle {
-        color: color_ref,
-        triangle: Triangle { a: a, b: b, c: c },
-    })
-}
-
-/// Parse a line containing a Quad statement.
-fn parse_quad_statement(
-    path: &Path,
-    line_number: u32,
-    fields: Vec<&str>,
-) -> ParseResult1<Statement> {
-    check_fields_eq(path, line_number, &fields, 14)?;
-    let color_ref = parse_color_ref(path, line_number, fields[1])?;
-    let coordinates = map_result_monad(|f| parse_f64(path, line_number, f), &fields[2..14])?;
-    let a = Point::new(coordinates[0], coordinates[1], coordinates[2]);
-    let b = Point::new(coordinates[3], coordinates[4], coordinates[5]);
-    let c = Point::new(coordinates[6], coordinates[7], coordinates[8]);
-    let d = Point::new(coordinates[9], coordinates[10], coordinates[11]);
-    Ok(Statement::Quad {
-        color: color_ref,
-        quad: Quad {
-            a: a,
-            b: b,
-            c: c,
-            d: d,
-        },
-    })
-}
-
-/// Parse a line containing an OptionalLine statement.
-fn parse_optional_line_statement(
-    path: &Path,
-    line_number: u32,
-    fields: Vec<&str>,
-) -> ParseResult1<Statement> {
-    check_fields_eq(path, line_number, &fields, 14)?;
-    let color_ref = parse_color_ref(path, line_number, fields[1])?;
-    let coordinates = map_result_monad(|f| parse_f64(path, line_number, f), &fields[2..14])?;
-    let a = Point::new(coordinates[0], coordinates[1], coordinates[2]);
-    let b = Point::new(coordinates[3], coordinates[4], coordinates[5]);
-    let c_a = Point::new(coordinates[6], coordinates[7], coordinates[8]);
-    let c_b = Point::new(coordinates[9], coordinates[10], coordinates[11]);
-    Ok(Statement::OptionalLine {
-        color: color_ref,
-        line: Line { a: a, b: b },
-        control_line: Line { a: c_a, b: c_b },
-    })
 }
 
 // Local Variables:
