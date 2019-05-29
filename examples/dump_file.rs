@@ -22,7 +22,7 @@ extern crate ldraw;
 
 use ldraw::load_ldraw;
 use std::env;
-use std::io::{Write, stderr};
+use std::io::{stderr, Write};
 use std::path::Path;
 
 fn main() {
@@ -33,14 +33,16 @@ fn main() {
     match load_ldraw(&Path::new(&file_path)) {
         Err(parse_errors) => {
             for error in parse_errors {
-                writeln!(stderr(),
-                         "{}:{}: {}",
-                         error.path.display(),
-                         error.line_number,
-                         error.error)
-                    .unwrap();
+                writeln!(
+                    stderr(),
+                    "{}:{}: {}",
+                    error.path.display(),
+                    error.line_number,
+                    error.error
+                )
+                .unwrap();
             }
-        },
+        }
         Ok(file) => println!("{:?}\n", file),
     }
 }

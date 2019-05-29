@@ -19,8 +19,8 @@
 //! Loader of LDraw models.
 
 use na::convert_unchecked;
-use na::core::{ArrayStorage, Matrix as NAMatrix};
 use na::core::dimension::U4;
+use na::core::{ArrayStorage, Matrix as NAMatrix};
 use std::collections::{BTreeMap, HashMap};
 use std::convert::From;
 use std::fs::metadata;
@@ -28,9 +28,8 @@ use std::path::{Path, PathBuf};
 use std::rc::Rc;
 
 use super::file::{LDFile, Meta, Statement};
-use super::load::{ParseError, ParseResult, load_ldraw};
-use super::types::{Color, ColorRef, Line, MAIN_COLOR_INDEX, Matrix, Quad,
-                   Triangle};
+use super::load::{load_ldraw, ParseError, ParseResult};
+use super::types::{Color, ColorRef, Line, Matrix, Quad, Triangle, MAIN_COLOR_INDEX};
 
 /// Options to initialize a loader.
 pub struct Options {
@@ -67,16 +66,12 @@ struct State<'a, 'b> {
 
 impl<'a, 'b> State<'a, 'b> {
     /// Creates a new root State.
-    #[allow(unused_attributes)]
-    #[rustfmt_skip]
     fn new(path: &'a Path, root_directory: &'b Path) -> State<'a, 'b> {
         type RawMatrix = NAMatrix<f64, U4, U4, ArrayStorage<f64, U4, U4>>;
         let colors = BTreeMap::new();
         let raw_transform = RawMatrix::new(
-            1.0,  0.0,  0.0, 0.0,
-            0.0, -1.0,  0.0, 0.0,
-            0.0,  0.0, -1.0, 0.0,
-            0.0,  0.0,  0.0, 1.0);
+            1.0, 0.0, 0.0, 0.0, 0.0, -1.0, 0.0, 0.0, 0.0, 0.0, -1.0, 0.0, 0.0, 0.0, 0.0, 1.0,
+        );
         let transform: Matrix = unsafe { convert_unchecked(raw_transform) };
         State {
             path: path,
@@ -87,11 +82,7 @@ impl<'a, 'b> State<'a, 'b> {
     }
 
     /// Creates a new substate.
-    fn substate<'c>(&self,
-                    path: &'c Path,
-                    color: &Color,
-                    matrix: &Matrix)
-        -> State<'c, 'b> {
+    fn substate<'c>(&self, path: &'c Path, color: &Color, matrix: &Matrix) -> State<'c, 'b> {
         let mut new_colors = self.colors.clone();
         new_colors.insert(MAIN_COLOR_INDEX, color.clone());
         State {
@@ -116,7 +107,7 @@ impl<'a, 'b> State<'a, 'b> {
                     };
                     Err(vec![error])
                 }
-            },
+            }
             &ColorRef::RGB(_) => {
                 let error = ParseError {
                     path: self.path.to_path_buf(),
@@ -124,13 +115,16 @@ impl<'a, 'b> State<'a, 'b> {
                     error: String::from("RBG color references not supported"),
                 };
                 Err(vec![error])
-            },
+            }
         }
     }
 
     /// Transforms a line, according to the current transformation matrix.
     fn transform_line(&self, line: &Line) -> Line {
-        Line { a: self.transform * line.a, b: self.transform * line.b }
+        Line {
+            a: self.transform * line.a,
+            b: self.transform * line.b,
+        }
     }
 
     /// Transforms a triangle, according to the current transformation matrix.
@@ -165,10 +159,7 @@ pub trait Visitor {
     fn visit_quad(&mut self, color: &Color, quad: &Quad);
 
     /// Visits an optional line.
-    fn visit_optional_line(&mut self,
-                           color: &Color,
-                           line: &Line,
-                           control_line: &Line);
+    fn visit_optional_line(&mut self, color: &Color, line: &Line, control_line: &Line);
 }
 
 impl Loader {
@@ -176,14 +167,15 @@ impl Loader {
     pub fn new(options: Options) -> Loader {
         let full_paths = HashMap::new();
         let files = HashMap::new();
-        Loader { options: options, full_paths: full_paths, files: files }
+        Loader {
+            options: options,
+            full_paths: full_paths,
+            files: files,
+        }
     }
 
     /// Accepts the visitor on the model rooted at the given path.
-    pub fn accept<V: Visitor>(&mut self,
-                              path: &Path,
-                              visitor: &mut V)
-        -> ParseResult<()> {
+    pub fn accept<V: Visitor>(&mut self, path: &Path, visitor: &mut V) -> ParseResult<()> {
         let root_directory = if path.is_relative() {
             PathBuf::from(".")
         } else if let Some(parent) = path.parent() {
@@ -205,11 +197,12 @@ impl Loader {
     }
 
     /// Expands a potentially relative path to a full one.
-    fn expand_path<'a>(full_paths: &'a mut HashMap<PathBuf, PathBuf>,
-                       options: &Options,
-                       state: &State,
-                       path: &Path)
-        -> ParseResult<&'a PathBuf> {
+    fn expand_path<'a>(
+        full_paths: &'a mut HashMap<PathBuf, PathBuf>,
+        options: &Options,
+        state: &State,
+        path: &Path,
+    ) -> ParseResult<&'a PathBuf> {
         if !full_paths.contains_key(path) {
             if path.is_absolute() {
                 full_paths.insert(path.to_path_buf(), path.to_path_buf());
@@ -219,8 +212,7 @@ impl Loader {
                     full_paths.insert(path.to_path_buf(), full_path);
                 } else {
                     for subdir in vec![".", "p", "p/48", "parts", "parts/s"] {
-                        let full_path =
-                            options.ldraw_path.join(subdir).join(path);
+                        let full_path = options.ldraw_path.join(subdir).join(path);
                         if let Ok(_) = metadata(&full_path) {
                             full_paths.insert(path.to_path_buf(), full_path);
                             break;
@@ -239,12 +231,13 @@ impl Loader {
 
     /// Loads a file, specified as a potentially relative path, resolving that
     /// path if needed.
-    fn load_file<'a, 'b>(files: &'a mut HashMap<PathBuf, Rc<LDFile>>,
-                         full_paths: &'b mut HashMap<PathBuf, PathBuf>,
-                         options: &Options,
-                         state: &State,
-                         path: &Path)
-        -> ParseResult<Rc<LDFile>> {
+    fn load_file<'a, 'b>(
+        files: &'a mut HashMap<PathBuf, Rc<LDFile>>,
+        full_paths: &'b mut HashMap<PathBuf, PathBuf>,
+        options: &Options,
+        state: &State,
+        path: &Path,
+    ) -> ParseResult<Rc<LDFile>> {
         let full_path = Loader::expand_path(full_paths, options, state, path)?;
         if !files.contains_key(full_path) {
             let new_file = load_ldraw(full_path)?;
@@ -254,57 +247,71 @@ impl Loader {
     }
 
     /// Accepts the visitor on the model recursively.
-    fn accept_rec<V: Visitor>(&mut self,
-                              state: &mut State,
-                              path: &Path,
-                              visitor: &mut V)
-        -> ParseResult<()> {
-        let file = Loader::load_file(&mut self.files,
-                                     &mut self.full_paths,
-                                     &self.options,
-                                     state,
-                                     path)?;
+    fn accept_rec<V: Visitor>(
+        &mut self,
+        state: &mut State,
+        path: &Path,
+        visitor: &mut V,
+    ) -> ParseResult<()> {
+        let file = Loader::load_file(
+            &mut self.files,
+            &mut self.full_paths,
+            &self.options,
+            state,
+            path,
+        )?;
         for statement in file.statements.iter() {
             match statement {
                 &Statement::Meta(ref meta) => {
                     self.process_meta(state, &meta);
-                },
-                &Statement::Subfile { color: ref color_ref,
-                                      ref matrix,
-                                      ref file } => {
+                }
+                &Statement::Subfile {
+                    color: ref color_ref,
+                    ref matrix,
+                    ref file,
+                } => {
                     let color = state.resolve_color_ref(color_ref)?;
                     let mut new_state = state.substate(&file, &color, &matrix);
                     self.accept_rec(&mut new_state, &file, visitor)?;
-                },
-                &Statement::Line { color: ref color_ref, ref line } => {
+                }
+                &Statement::Line {
+                    color: ref color_ref,
+                    ref line,
+                } => {
                     let color = state.resolve_color_ref(color_ref)?;
                     let transformed_line = state.transform_line(line);
                     visitor.visit_line(color, &transformed_line);
-                },
-                &Statement::Triangle { color: ref color_ref, ref triangle } => {
-                    {
-                        let color = state.resolve_color_ref(color_ref)?;
-                        let transformed_triangle =
-                            state.transform_triangle(triangle);
-                        visitor.visit_triangle(color, &transformed_triangle);
-                    }
-                },
-                &Statement::Quad { color: ref color_ref, ref quad } => {
+                }
+                &Statement::Triangle {
+                    color: ref color_ref,
+                    ref triangle,
+                } => {
+                    let color = state.resolve_color_ref(color_ref)?;
+                    let transformed_triangle = state.transform_triangle(triangle);
+                    visitor.visit_triangle(color, &transformed_triangle);
+                }
+                &Statement::Quad {
+                    color: ref color_ref,
+                    ref quad,
+                } => {
                     let color = state.resolve_color_ref(color_ref)?;
                     let transformed_quad = state.transform_quad(quad);
                     visitor.visit_quad(color, &transformed_quad);
-                },
-                &Statement::OptionalLine { color: ref color_ref,
-                                           ref line,
-                                           ref control_line } => {
+                }
+                &Statement::OptionalLine {
+                    color: ref color_ref,
+                    ref line,
+                    ref control_line,
+                } => {
                     let color = state.resolve_color_ref(color_ref)?;
                     let transformed_line = state.transform_line(line);
-                    let transformed_control_line =
-                        state.transform_line(control_line);
-                    visitor.visit_optional_line(color,
-                                                &transformed_line,
-                                                &transformed_control_line);
-                },
+                    let transformed_control_line = state.transform_line(control_line);
+                    visitor.visit_optional_line(
+                        color,
+                        &transformed_line,
+                        &transformed_control_line,
+                    );
+                }
             }
         }
         Ok(())
@@ -315,8 +322,8 @@ impl Loader {
         match meta {
             &Meta::Color(ref color) => {
                 state.colors.insert(color.code, color.clone());
-            },
-            _ => {},
+            }
+            _ => {}
         }
     }
 }

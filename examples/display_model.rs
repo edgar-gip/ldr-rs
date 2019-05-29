@@ -26,8 +26,7 @@ use kiss3d::camera::ArcBall;
 use kiss3d::light::Light;
 use kiss3d::resource::Mesh;
 use kiss3d::window::Window;
-use ldraw::{Color, Line, Loader, Options as LoaderOptions, Quad, Triangle,
-            Visitor};
+use ldraw::{Color, Line, Loader, Options as LoaderOptions, Quad, Triangle, Visitor};
 use na::{Point3, Vector3};
 use std::cell::RefCell;
 use std::env;
@@ -119,15 +118,19 @@ impl<'a> Visitor for KissVisitor<'a> {
         let uvs = None;
         let scale = Vector3::new(1.0, 1.0, 1.0);
         const DYNAMIC_DRAW: bool = false;
-        let mesh = Rc::new(RefCell::new(Mesh::new(coords,
-                                                  faces,
-                                                  normals,
-                                                  uvs,
-                                                  DYNAMIC_DRAW)));
+        let mesh = Rc::new(RefCell::new(Mesh::new(
+            coords,
+            faces,
+            normals,
+            uvs,
+            DYNAMIC_DRAW,
+        )));
         let mut obj = self.window.add_mesh(mesh, scale);
-        obj.set_color(color.value.0 as f32 / 255.0,
-                      color.value.1 as f32 / 255.0,
-                      color.value.2 as f32 / 255.0);
+        obj.set_color(
+            color.value.0 as f32 / 255.0,
+            color.value.1 as f32 / 255.0,
+            color.value.2 as f32 / 255.0,
+        );
         obj.enable_backface_culling(false);
     }
 
@@ -144,24 +147,24 @@ impl<'a> Visitor for KissVisitor<'a> {
         let uvs = None;
         let scale = Vector3::new(1.0, 1.0, 1.0);
         const DYNAMIC_DRAW: bool = false;
-        let mesh = Rc::new(RefCell::new(Mesh::new(coords,
-                                                  faces,
-                                                  normals,
-                                                  uvs,
-                                                  DYNAMIC_DRAW)));
+        let mesh = Rc::new(RefCell::new(Mesh::new(
+            coords,
+            faces,
+            normals,
+            uvs,
+            DYNAMIC_DRAW,
+        )));
         let mut obj = self.window.add_mesh(mesh, scale);
-        obj.set_color(color.value.0 as f32 / 255.0,
-                      color.value.1 as f32 / 255.0,
-                      color.value.2 as f32 / 255.0);
+        obj.set_color(
+            color.value.0 as f32 / 255.0,
+            color.value.1 as f32 / 255.0,
+            color.value.2 as f32 / 255.0,
+        );
         obj.enable_backface_culling(false);
     }
 
     #[allow(unused_variables)]
-    fn visit_optional_line(&mut self,
-                           color: &Color,
-                           line: &Line,
-                           control_line: &Line) {
-    }
+    fn visit_optional_line(&mut self, color: &Color, line: &Line, control_line: &Line) {}
 }
 
 fn main() {
@@ -177,17 +180,21 @@ fn main() {
     let at;
     {
         let mut visitor = KissVisitor::new(&mut window);
-        let loader_options =
-            LoaderOptions { ldraw_path: PathBuf::from(ldraw_path) };
+        let loader_options = LoaderOptions {
+            ldraw_path: PathBuf::from(ldraw_path),
+        };
         let mut loader = Loader::new(loader_options);
         loader.accept(&Path::new(&file_path), &mut visitor).unwrap();
-        eye =
-            Point3::new(visitor.max_x + (visitor.max_x - visitor.min_x) * 2.0,
-                        visitor.min_y + (visitor.max_y - visitor.min_y) * 0.75,
-                        visitor.min_z + (visitor.max_z - visitor.min_z) * 0.75);
-        at = Point3::new(visitor.min_x + (visitor.max_x - visitor.min_x) / 2.0,
-                         visitor.min_y + (visitor.max_y - visitor.min_y) / 2.0,
-                         visitor.min_z + (visitor.max_z - visitor.min_z) / 2.0);
+        eye = Point3::new(
+            visitor.max_x + (visitor.max_x - visitor.min_x) * 2.0,
+            visitor.min_y + (visitor.max_y - visitor.min_y) * 0.75,
+            visitor.min_z + (visitor.max_z - visitor.min_z) * 0.75,
+        );
+        at = Point3::new(
+            visitor.min_x + (visitor.max_x - visitor.min_x) / 2.0,
+            visitor.min_y + (visitor.max_y - visitor.min_y) / 2.0,
+            visitor.min_z + (visitor.max_z - visitor.min_z) / 2.0,
+        );
     }
 
     let mut camera = ArcBall::new(eye, at);

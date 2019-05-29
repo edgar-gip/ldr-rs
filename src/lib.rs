@@ -20,7 +20,6 @@
 //!
 //! [1]: http://www.ldraw.org
 
-#![feature(custom_attribute)]
 #![feature(proc_macro_hygiene)]
 
 #[macro_use]

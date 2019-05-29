@@ -203,11 +203,28 @@ pub enum Meta {
 #[derive(Debug)]
 pub enum Statement {
     Meta(Meta),
-    Subfile { color: ColorRef, matrix: Matrix, file: PathBuf },
-    Line { color: ColorRef, line: Line },
-    Triangle { color: ColorRef, triangle: Triangle },
-    Quad { color: ColorRef, quad: Quad },
-    OptionalLine { color: ColorRef, line: Line, control_line: Line },
+    Subfile {
+        color: ColorRef,
+        matrix: Matrix,
+        file: PathBuf,
+    },
+    Line {
+        color: ColorRef,
+        line: Line,
+    },
+    Triangle {
+        color: ColorRef,
+        triangle: Triangle,
+    },
+    Quad {
+        color: ColorRef,
+        quad: Quad,
+    },
+    OptionalLine {
+        color: ColorRef,
+        line: Line,
+        control_line: Line,
+    },
 }
 
 /// LDraw file.

@@ -27,8 +27,8 @@
 //! [2]: http://www.ldraw.org/article/218
 //! [3]: http://www.ldraw.org/article/299
 
-use na::Point3;
 use na::geometry::Affine3;
+use na::Point3;
 
 /// Point.
 pub type Point = Point3<f64>;
