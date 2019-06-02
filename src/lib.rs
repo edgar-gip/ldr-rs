@@ -32,11 +32,13 @@ extern crate regex;
 pub mod file;
 pub mod load;
 pub mod loader;
+pub mod multi_file;
 pub mod types;
 
 pub use self::file::*;
 pub use self::load::*;
 pub use self::loader::*;
+pub use self::multi_file::*;
 pub use self::types::*;
 
 // Local Variables:

@@ -25,6 +25,7 @@
 //! * [Official Library Header Specification][4]
 //! * [CATEGORY and KEYWORDS Language Extension][5]
 //! * [Language Extension for Back Face Culling (BFC)][6]
+//! * [MPD Language Extension[7]
 //!
 //! [1]: http://www.ldraw.org
 //! [2]: http://www.ldraw.org/article/218
@@ -32,6 +33,7 @@
 //! [4]: http://www.ldraw.org/article/398
 //! [5]: http://www.ldraw.org/article/340
 //! [6]: http://www.ldraw.org/article/415
+//! [7]: http://www.ldraw.org/article/47
 
 use std::path::PathBuf;
 

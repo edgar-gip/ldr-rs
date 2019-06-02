@@ -18,17 +18,18 @@
 
 //! Loader of LDraw models.
 
-use na::convert_unchecked;
+use na;
 use na::core::dimension::U4;
 use na::core::{ArrayStorage, Matrix as NAMatrix};
 use std::collections::{BTreeMap, HashMap};
 use std::convert::From;
-use std::fs::metadata;
+use std::fs;
 use std::path::{Path, PathBuf};
 use std::rc::Rc;
 
-use super::file::{LDFile, Meta, Statement};
+use super::file::{Meta, Statement};
 use super::load::{load_ldraw, ParseError, ParseResult};
+use super::multi_file::LDMultiFile;
 use super::types::{Color, ColorRef, Line, Matrix, Quad, Triangle, MAIN_COLOR_INDEX};
 
 /// Options to initialize a loader.
@@ -46,13 +47,16 @@ pub struct Loader {
     full_paths: HashMap<PathBuf, PathBuf>,
 
     /// Mapping from full paths to files.
-    files: HashMap<PathBuf, Rc<LDFile>>,
+    files: HashMap<PathBuf, Rc<LDMultiFile>>,
 }
 
 /// State of the loader while loading a model.
 struct State<'a, 'b> {
     /// Current path.
     path: &'a Path,
+
+    /// Current part within the file.
+    part_name: Option<String>,
 
     /// Directory where the root file was located.
     root_directory: &'b Path,
@@ -72,21 +76,36 @@ impl<'a, 'b> State<'a, 'b> {
         let raw_transform = RawMatrix::new(
             1.0, 0.0, 0.0, 0.0, 0.0, -1.0, 0.0, 0.0, 0.0, 0.0, -1.0, 0.0, 0.0, 0.0, 0.0, 1.0,
         );
-        let transform: Matrix = unsafe { convert_unchecked(raw_transform) };
+        let transform: Matrix = unsafe { na::convert_unchecked(raw_transform) };
         State {
             path: path,
+            part_name: None,
             root_directory: root_directory,
             colors: colors,
             transform: transform,
         }
     }
 
-    /// Creates a new substate.
-    fn substate<'c>(&self, path: &'c Path, color: &Color, matrix: &Matrix) -> State<'c, 'b> {
+    /// Creates a new substate for a new path.
+    fn substate_path<'c>(&self, path: &'c Path, color: &Color, matrix: &Matrix) -> State<'c, 'b> {
         let mut new_colors = self.colors.clone();
         new_colors.insert(MAIN_COLOR_INDEX, color.clone());
         State {
             path: path,
+            part_name: None,
+            root_directory: self.root_directory,
+            colors: new_colors,
+            transform: self.transform * matrix,
+        }
+    }
+
+    /// Creates a new substate for a new part.
+    fn substate_part(&self, part_name: String, color: &Color, matrix: &Matrix) -> State<'a, 'b> {
+        let mut new_colors = self.colors.clone();
+        new_colors.insert(MAIN_COLOR_INDEX, color.clone());
+        State {
+            path: self.path,
+            part_name: Some(part_name),
             root_directory: self.root_directory,
             colors: new_colors,
             transform: self.transform * matrix,
@@ -163,7 +182,7 @@ pub trait Visitor {
 }
 
 impl Loader {
-    /// Creates a new
+    /// Creates a new loader.
     pub fn new(options: Options) -> Loader {
         let full_paths = HashMap::new();
         let files = HashMap::new();
@@ -190,9 +209,9 @@ impl Loader {
         };
         let ldconfig_path = Path::new("LDConfig.ldr");
         let mut state = State::new(&ldconfig_path, &root_directory);
-        self.accept_rec(&mut state, &ldconfig_path, visitor)?;
+        self.accept_rec(&mut state, visitor)?;
         state.path = path;
-        self.accept_rec(&mut state, path, visitor)?;
+        self.accept_rec(&mut state, visitor)?;
         Ok(())
     }
 
@@ -201,19 +220,19 @@ impl Loader {
         full_paths: &'a mut HashMap<PathBuf, PathBuf>,
         options: &Options,
         state: &State,
-        path: &Path,
     ) -> ParseResult<&'a PathBuf> {
+        let path = state.path;
         if !full_paths.contains_key(path) {
             if path.is_absolute() {
                 full_paths.insert(path.to_path_buf(), path.to_path_buf());
             } else {
                 let full_path = state.root_directory.join(path);
-                if let Ok(_) = metadata(&full_path) {
+                if let Ok(_) = fs::metadata(&full_path) {
                     full_paths.insert(path.to_path_buf(), full_path);
                 } else {
                     for subdir in vec![".", "p", "p/48", "parts", "parts/s"] {
                         let full_path = options.ldraw_path.join(subdir).join(path);
-                        if let Ok(_) = metadata(&full_path) {
+                        if let Ok(_) = fs::metadata(&full_path) {
                             full_paths.insert(path.to_path_buf(), full_path);
                             break;
                         }
@@ -232,35 +251,37 @@ impl Loader {
     /// Loads a file, specified as a potentially relative path, resolving that
     /// path if needed.
     fn load_file<'a, 'b>(
-        files: &'a mut HashMap<PathBuf, Rc<LDFile>>,
+        files: &'a mut HashMap<PathBuf, Rc<LDMultiFile>>,
         full_paths: &'b mut HashMap<PathBuf, PathBuf>,
         options: &Options,
         state: &State,
-        path: &Path,
-    ) -> ParseResult<Rc<LDFile>> {
-        let full_path = Loader::expand_path(full_paths, options, state, path)?;
+    ) -> ParseResult<Rc<LDMultiFile>> {
+        let full_path = Loader::expand_path(full_paths, options, state)?;
         if !files.contains_key(full_path) {
             let new_file = load_ldraw(full_path)?;
-            files.insert(path.to_path_buf(), Rc::new(new_file));
+            files.insert(
+                state.path.to_path_buf(),
+                Rc::new(LDMultiFile::new(new_file)),
+            );
         }
-        Ok(files.get(path).unwrap().clone())
+        Ok(files.get(state.path).unwrap().clone())
     }
 
     /// Accepts the visitor on the model recursively.
-    fn accept_rec<V: Visitor>(
-        &mut self,
-        state: &mut State,
-        path: &Path,
-        visitor: &mut V,
-    ) -> ParseResult<()> {
-        let file = Loader::load_file(
-            &mut self.files,
-            &mut self.full_paths,
-            &self.options,
-            state,
-            path,
-        )?;
-        for statement in file.statements.iter() {
+    fn accept_rec<V: Visitor>(&mut self, state: &mut State, visitor: &mut V) -> ParseResult<()> {
+        let multi_file =
+            Loader::load_file(&mut self.files, &mut self.full_paths, &self.options, state)?;
+        let part = match &state.part_name {
+            None => &multi_file.main_part,
+            Some(name) => multi_file.find_part(name).ok_or_else(|| {
+                vec![ParseError {
+                    path: state.path.to_path_buf(),
+                    line_number: 0,
+                    error: format!("Can't find {} in {}", name, state.path.display()),
+                }]
+            })?,
+        };
+        for statement in multi_file.file.statements[part.range_start..part.range_end].iter() {
             match statement {
                 &Statement::Meta(ref meta) => {
                     self.process_meta(state, &meta);
@@ -271,8 +292,13 @@ impl Loader {
                     ref file,
                 } => {
                     let color = state.resolve_color_ref(color_ref)?;
-                    let mut new_state = state.substate(&file, &color, &matrix);
-                    self.accept_rec(&mut new_state, &file, visitor)?;
+                    let lower_file = file.to_str().unwrap().to_ascii_lowercase();
+                    let mut new_state = if multi_file.find_part(&lower_file).is_some() {
+                        state.substate_part(lower_file, &color, &matrix)
+                    } else {
+                        state.substate_path(&file, &color, &matrix)
+                    };
+                    self.accept_rec(&mut new_state, visitor)?;
                 }
                 &Statement::Line {
                     color: ref color_ref,

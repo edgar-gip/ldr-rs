@@ -184,17 +184,24 @@ fn main() {
             ldraw_path: PathBuf::from(ldraw_path),
         };
         let mut loader = Loader::new(loader_options);
-        loader.accept(&Path::new(&file_path), &mut visitor).unwrap();
-        eye = Point3::new(
-            visitor.max_x + (visitor.max_x - visitor.min_x) * 2.0,
-            visitor.min_y + (visitor.max_y - visitor.min_y) * 0.75,
-            visitor.min_z + (visitor.max_z - visitor.min_z) * 0.75,
-        );
-        at = Point3::new(
-            visitor.min_x + (visitor.max_x - visitor.min_x) / 2.0,
-            visitor.min_y + (visitor.max_y - visitor.min_y) / 2.0,
-            visitor.min_z + (visitor.max_z - visitor.min_z) / 2.0,
-        );
+        match loader.accept(&Path::new(&file_path), &mut visitor) {
+            Ok(()) => {
+                eye = Point3::new(
+                    visitor.max_x + (visitor.max_x - visitor.min_x) * 2.0,
+                    visitor.min_y + (visitor.max_y - visitor.min_y) * 0.75,
+                    visitor.min_z + (visitor.max_z - visitor.min_z) * 0.75,
+                );
+                at = Point3::new(
+                    visitor.min_x + (visitor.max_x - visitor.min_x) / 2.0,
+                    visitor.min_y + (visitor.max_y - visitor.min_y) / 2.0,
+                    visitor.min_z + (visitor.max_z - visitor.min_z) / 2.0,
+                );
+            }
+            Err(error) => {
+                println!("{:#?}", error);
+                return;
+            }
+        }
     }
 
     let mut camera = ArcBall::new(eye, at);
