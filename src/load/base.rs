@@ -19,7 +19,6 @@
 //! Loading of LDraw files: Base operations.
 
 use regex::Regex;
-// use std::f64;
 use std::io::Result as IoResult;
 use std::num::{ParseFloatError, ParseIntError};
 use std::path::{Path, PathBuf};

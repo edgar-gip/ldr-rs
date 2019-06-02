@@ -17,6 +17,13 @@
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
 
 //! Multi-part LDraw file.
+//!
+//! Following [LDraw.org][1] standards:
+//!
+//! * [MPD Language Extension[2]
+//!
+//! [1]: http://www.ldraw.org
+//! [2]: http://www.ldraw.org/article/47
 
 use super::file::{LDFile, Meta, Statement};
 

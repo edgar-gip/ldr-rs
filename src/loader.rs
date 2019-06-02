@@ -28,7 +28,7 @@ use std::path::{Path, PathBuf};
 use std::rc::Rc;
 
 use super::file::{Meta, Statement};
-use super::load::{load_ldraw, ParseError, ParseResult};
+use super::load::{self, ParseError, ParseResult};
 use super::multi_file::LDMultiFile;
 use super::types::{Color, ColorRef, Line, Matrix, Quad, Triangle, MAIN_COLOR_INDEX};
 
@@ -115,7 +115,7 @@ impl<'a, 'b> State<'a, 'b> {
     /// Resolves a color reference to a color, according to the current mapping.
     fn resolve_color_ref(&self, color_ref: &ColorRef) -> ParseResult<&Color> {
         match color_ref {
-            &ColorRef::Indexed(index) => {
+            ColorRef::Indexed(index) => {
                 if let Some(color) = self.colors.get(&index) {
                     Ok(color)
                 } else {
@@ -127,7 +127,7 @@ impl<'a, 'b> State<'a, 'b> {
                     Err(vec![error])
                 }
             }
-            &ColorRef::RGB(_) => {
+            ColorRef::RGB(_) => {
                 let error = ParseError {
                     path: self.path.to_path_buf(),
                     line_number: 0,
@@ -258,7 +258,7 @@ impl Loader {
     ) -> ParseResult<Rc<LDMultiFile>> {
         let full_path = Loader::expand_path(full_paths, options, state)?;
         if !files.contains_key(full_path) {
-            let new_file = load_ldraw(full_path)?;
+            let new_file = load::load_ldraw(full_path)?;
             files.insert(
                 state.path.to_path_buf(),
                 Rc::new(LDMultiFile::new(new_file)),
@@ -283,13 +283,13 @@ impl Loader {
         };
         for statement in multi_file.file.statements[part.range_start..part.range_end].iter() {
             match statement {
-                &Statement::Meta(ref meta) => {
+                Statement::Meta(meta) => {
                     self.process_meta(state, &meta);
                 }
-                &Statement::Subfile {
-                    color: ref color_ref,
-                    ref matrix,
-                    ref file,
+                Statement::Subfile {
+                    color: color_ref,
+                    matrix,
+                    file,
                 } => {
                     let color = state.resolve_color_ref(color_ref)?;
                     let lower_file = file.to_str().unwrap().to_ascii_lowercase();
@@ -300,34 +300,34 @@ impl Loader {
                     };
                     self.accept_rec(&mut new_state, visitor)?;
                 }
-                &Statement::Line {
-                    color: ref color_ref,
-                    ref line,
+                Statement::Line {
+                    color: color_ref,
+                    line,
                 } => {
                     let color = state.resolve_color_ref(color_ref)?;
                     let transformed_line = state.transform_line(line);
                     visitor.visit_line(color, &transformed_line);
                 }
-                &Statement::Triangle {
-                    color: ref color_ref,
-                    ref triangle,
+                Statement::Triangle {
+                    color: color_ref,
+                    triangle,
                 } => {
                     let color = state.resolve_color_ref(color_ref)?;
                     let transformed_triangle = state.transform_triangle(triangle);
                     visitor.visit_triangle(color, &transformed_triangle);
                 }
-                &Statement::Quad {
-                    color: ref color_ref,
-                    ref quad,
+                Statement::Quad {
+                    color: color_ref,
+                    quad,
                 } => {
                     let color = state.resolve_color_ref(color_ref)?;
                     let transformed_quad = state.transform_quad(quad);
                     visitor.visit_quad(color, &transformed_quad);
                 }
-                &Statement::OptionalLine {
-                    color: ref color_ref,
-                    ref line,
-                    ref control_line,
+                Statement::OptionalLine {
+                    color: color_ref,
+                    line,
+                    control_line,
                 } => {
                     let color = state.resolve_color_ref(color_ref)?;
                     let transformed_line = state.transform_line(line);
@@ -346,7 +346,7 @@ impl Loader {
     /// Updates the current state based on a meta directive.
     fn process_meta(&self, state: &mut State, meta: &Meta) {
         match meta {
-            &Meta::Color(ref color) => {
+            Meta::Color(color) => {
                 state.colors.insert(color.code, color.clone());
             }
             _ => {}
