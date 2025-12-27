@@ -126,8 +126,8 @@ fn parse_subfile_statement(
     line_number: u32,
     fields: Vec<&str>,
 ) -> ParseResult1<Statement> {
-    type RawMatrix = NAMatrix<f64, U4, U4, ArrayStorage<f64, U4, U4>>;
-    base::check_fields_eq(path, line_number, &fields, 15)?;
+    type RawMatrix = NAMatrix<f64, U4, U4, ArrayStorage<f64, 4, 4>>;
+    base::check_fields_ge(path, line_number, &fields, 15)?;
     let color_ref = base::parse_color_ref(path, line_number, fields[1])?;
     let origin = base::map_result_monad(|f| base::parse_f64(path, line_number, f), &fields[2..5])?;
     let transform =
@@ -150,11 +150,11 @@ fn parse_subfile_statement(
         0.0,
         1.0,
     );
-    let matrix: Matrix = unsafe { convert_unchecked(raw_matrix) };
+    let matrix: Matrix = convert_unchecked(raw_matrix);
     Ok(Statement::Subfile {
         color: color_ref,
         matrix: matrix,
-        file: PathBuf::from(fields[14].replace('\\', "/").to_lowercase()),
+        file: PathBuf::from(fields[14..].join(" ").replace('\\', "/").to_lowercase()),
     })
 }
 

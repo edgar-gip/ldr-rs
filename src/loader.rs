@@ -71,12 +71,12 @@ struct State<'a, 'b> {
 impl<'a, 'b> State<'a, 'b> {
     /// Creates a new root State.
     fn new(path: &'a Path, root_directory: &'b Path) -> State<'a, 'b> {
-        type RawMatrix = NAMatrix<f64, U4, U4, ArrayStorage<f64, U4, U4>>;
+        type RawMatrix = NAMatrix<f64, U4, U4, ArrayStorage<f64, 4, 4>>;
         let colors = BTreeMap::new();
         let raw_transform = RawMatrix::new(
             1.0, 0.0, 0.0, 0.0, 0.0, -1.0, 0.0, 0.0, 0.0, 0.0, -1.0, 0.0, 0.0, 0.0, 0.0, 1.0,
         );
-        let transform: Matrix = unsafe { na::convert_unchecked(raw_transform) };
+        let transform: Matrix = na::convert_unchecked(raw_transform);
         State {
             path: path,
             part_name: None,

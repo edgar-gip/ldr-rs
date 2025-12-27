@@ -359,17 +359,17 @@ fn parse_color_material(
         let size_kw = base::check_field_get(path, line_number, &fields, *index)?;
         let size = if size_kw == "SIZE" {
             let size =
-                base::check_field_get_and(path, line_number, fields, *index + 1, &base::parse_u8)?;
+                base::check_field_get_and(path, line_number, fields, *index + 1, &base::parse_f64)?;
             *index += 2;
             (size, size)
         } else if size_kw == "MINSIZE" {
             let minsize =
-                base::check_field_get_and(path, line_number, fields, *index + 1, &base::parse_u8)?;
+                base::check_field_get_and(path, line_number, fields, *index + 1, &base::parse_f64)?;
             base::check_field_get_and(path, line_number, &fields, *index + 2, |p, l, f| {
                 base::check_field_is(p, l, f, "MAXSIZE")
             })?;
             let maxsize =
-                base::check_field_get_and(path, line_number, fields, *index + 3, &base::parse_u8)?;
+                base::check_field_get_and(path, line_number, fields, *index + 3, &base::parse_f64)?;
             *index += 4;
             (minsize, maxsize)
         } else {
@@ -518,8 +518,9 @@ fn parse_meta_comment(path: &Path, line_number: u32, fields: Vec<&str>) -> Parse
 
 /// Parse a line containing a FILE Meta statement.
 fn parse_meta_file(path: &Path, line_number: u32, fields: Vec<&str>) -> ParseResult1<Meta> {
-    base::check_fields_eq(path, line_number, &fields, 3)?;
-    Ok(Meta::File(fields[2].to_string()))
+    base::check_fields_ge(path, line_number, &fields, 3)?;
+    println!("{}", fields[2..].join(" "));
+    Ok(Meta::File(fields[2..].join(" ")))
 }
 
 /// Parse a line containing a file-type (!LDRAW_ORG) Meta statement.
@@ -607,6 +608,9 @@ fn parse_meta_file_type(path: &Path, line_number: u32, fields: Vec<&str>) -> Par
         if fields[index] == "Alias" {
             qualifiers.push(Qualifier::Alias);
             index += 1;
+        } else if fields[index] == "Flexible_Section" {
+            qualifiers.push(Qualifier::FlexibleSection);
+            index += 1;
         } else if fields[index] == "Physical_Colour" {
             qualifiers.push(Qualifier::PhysicalColor);
             index += 1;
@@ -617,7 +621,7 @@ fn parse_meta_file_type(path: &Path, line_number: u32, fields: Vec<&str>) -> Par
 
     // Parse update tag.
     let update_tag = if index == fields.len() {
-        if officiality == Officiality::LDrawOfficial {
+        if officiality == Officiality::LDrawOfficial && contents != Some(Contents::Model) {
             return Err(ParseError {
                 path: path.to_path_buf(),
                 line_number: line_number,

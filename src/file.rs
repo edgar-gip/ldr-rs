@@ -81,7 +81,7 @@ pub enum Officiality {
 }
 
 /// File contents.
-#[derive(Clone, Copy, Debug)]
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum Contents {
     Configuration,
     Part,
@@ -104,6 +104,7 @@ pub enum Contents {
 #[derive(Debug)]
 pub enum Qualifier {
     Alias,
+    FlexibleSection,
     PhysicalColor,
 }
 

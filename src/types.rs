@@ -92,7 +92,7 @@ pub struct Glitter {
     pub luminance: Option<u8>,
     pub fraction: f64,
     pub v_fraction: f64,
-    pub size: (u8, u8), // the two may be equal.
+    pub size: (f64, f64), // the two may be equal.
 }
 
 /// Speckle material.
@@ -102,7 +102,7 @@ pub struct Speckle {
     pub alpha: Option<u8>,
     pub luminance: Option<u8>,
     pub fraction: f64,
-    pub size: (u8, u8), // the two may be equal.
+    pub size: (f64, f64), // the two may be equal.
 }
 
 /// Color material.

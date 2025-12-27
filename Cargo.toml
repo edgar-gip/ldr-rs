@@ -24,12 +24,12 @@ edition = "2018"
 
 [dependencies]
 lazy_static = "*"
-nalgebra = "*"
+nalgebra = "^0.30"
 phf = { version = "*", features = ["macros"] }
 regex = "*"
 
 [dev-dependencies]
-kiss3d = "*"
+kiss3d = "<0.37"
 
 # Local Variables:
 # coding: utf-8
