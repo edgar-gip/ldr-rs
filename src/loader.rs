@@ -1,9 +1,9 @@
-// ldraw-rust: LDraw models for Rust
+// ldr-rs: LDraw models for Rust
 // Copyright (C) 2017-2025  Edgar Gonzàlez i Pellicer
 //
-// This file is part of ldraw-rust.
+// This file is part of ldr-rs.
 //
-// ldraw-rust is free software: you can redistribute it and/or
+// ldr-rs is free software: you can redistribute it and/or
 // modify it under the terms of the GNU General Public License as
 // published by the Free Software Foundation, either version 3 of the
 // License, or (at your option) any later version.
@@ -16,7 +16,7 @@
 // You should have received a copy of the GNU General Public License
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
 
-//! Loader of LDraw models.
+//! Loader of LDR models.
 
 use na;
 use na::core::dimension::U4;
@@ -29,16 +29,16 @@ use std::rc::Rc;
 
 use super::file::{Meta, Statement};
 use super::load::{self, ParseError, ParseResult};
-use super::multi_file::LDMultiFile;
+use super::multi_file::LDRMultiFile;
 use super::types::{Color, ColorRef, Line, Matrix, Quad, Triangle, MAIN_COLOR_INDEX};
 
 /// Options to initialize a loader.
 pub struct Options {
-    /// Path to the LDraw file tree root.
-    pub ldraw_path: PathBuf,
+    /// Path to the LDR file tree root.
+    pub ldr_path: PathBuf,
 }
 
-/// Loader of LDraw models.
+/// Loader of LDR models.
 pub struct Loader {
     /// Options.
     options: Options,
@@ -47,7 +47,7 @@ pub struct Loader {
     full_paths: HashMap<PathBuf, PathBuf>,
 
     /// Mapping from full paths to files.
-    files: HashMap<PathBuf, Rc<LDMultiFile>>,
+    files: HashMap<PathBuf, Rc<LDRMultiFile>>,
 }
 
 /// State of the loader while loading a model.
@@ -166,7 +166,7 @@ impl<'a, 'b> State<'a, 'b> {
     }
 }
 
-/// Interface for visitors of LDraw models.
+/// Interface for visitors of LDR models.
 pub trait Visitor {
     /// Visits a line.
     fn visit_line(&mut self, color: &Color, line: &Line);
@@ -231,7 +231,7 @@ impl Loader {
                     full_paths.insert(path.to_path_buf(), full_path);
                 } else {
                     for subdir in vec![".", "p", "p/48", "parts", "parts/s"] {
-                        let full_path = options.ldraw_path.join(subdir).join(path);
+                        let full_path = options.ldr_path.join(subdir).join(path);
                         if let Ok(_) = fs::metadata(&full_path) {
                             full_paths.insert(path.to_path_buf(), full_path);
                             break;
@@ -251,17 +251,17 @@ impl Loader {
     /// Loads a file, specified as a potentially relative path, resolving that
     /// path if needed.
     fn load_file<'a, 'b>(
-        files: &'a mut HashMap<PathBuf, Rc<LDMultiFile>>,
+        files: &'a mut HashMap<PathBuf, Rc<LDRMultiFile>>,
         full_paths: &'b mut HashMap<PathBuf, PathBuf>,
         options: &Options,
         state: &State,
-    ) -> ParseResult<Rc<LDMultiFile>> {
+    ) -> ParseResult<Rc<LDRMultiFile>> {
         let full_path = Loader::expand_path(full_paths, options, state)?;
         if !files.contains_key(full_path) {
-            let new_file = load::load_ldraw(full_path)?;
+            let new_file = load::load_ldr(full_path)?;
             files.insert(
                 state.path.to_path_buf(),
-                Rc::new(LDMultiFile::new(new_file)),
+                Rc::new(LDRMultiFile::new(new_file)),
             );
         }
         Ok(files.get(state.path).unwrap().clone())

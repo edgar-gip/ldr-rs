@@ -1,9 +1,9 @@
-// ldraw-rust: LDraw models for Rust
+// ldr-rs: LDraw models for Rust
 // Copyright (C) 2017-2025  Edgar Gonzàlez i Pellicer
 //
-// This file is part of ldraw-rust.
+// This file is part of ldr-rs.
 //
-// ldraw-rust is free software: you can redistribute it and/or
+// ldr-rs is free software: you can redistribute it and/or
 // modify it under the terms of the GNU General Public License as
 // published by the Free Software Foundation, either version 3 of the
 // License, or (at your option) any later version.
@@ -19,14 +19,14 @@
 //! Display an LDraw model using Kiss3d.
 
 extern crate kiss3d;
-extern crate ldraw;
+extern crate ldr_rs;
 extern crate nalgebra as na;
 
 use kiss3d::camera::ArcBall;
 use kiss3d::light::Light;
 use kiss3d::resource::Mesh;
 use kiss3d::window::Window;
-use ldraw::{Color, Line, Loader, Options as LoaderOptions, Quad, Triangle, Visitor};
+use ldr_rs::{Color, Line, Loader, Options as LoaderOptions, Quad, Triangle, Visitor};
 use na::{Point3, Vector3};
 use std::cell::RefCell;
 use std::env;
@@ -34,7 +34,7 @@ use std::f32::INFINITY;
 use std::path::{Path, PathBuf};
 use std::rc::Rc;
 
-/// LDraw visitor which renders a file on a Kiss3d window.
+/// LDR visitor which renders a file on a Kiss3d window.
 struct KissVisitor<'a> {
     /// Target Kiss3d window.
     window: &'a mut Window,
@@ -170,7 +170,7 @@ impl<'a> Visitor for KissVisitor<'a> {
 fn main() {
     let args: Vec<String> = env::args().collect();
     assert!(args.len() == 3);
-    let ref ldraw_path: String = args[1];
+    let ref ldr_path: String = args[1];
     let ref file_path: String = args[2];
 
     let mut window = Window::new(&file_path);
@@ -181,7 +181,7 @@ fn main() {
     {
         let mut visitor = KissVisitor::new(&mut window);
         let loader_options = LoaderOptions {
-            ldraw_path: PathBuf::from(ldraw_path),
+            ldr_path: PathBuf::from(ldr_path),
         };
         let mut loader = Loader::new(loader_options);
         match loader.accept(&Path::new(&file_path), &mut visitor) {

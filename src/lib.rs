@@ -1,9 +1,9 @@
-// ldraw-rust: LDraw models for Rust
+// ldr-rs: LDraw models for Rust
 // Copyright (C) 2017-2025  Edgar Gonzàlez i Pellicer
 //
-// This file is part of ldraw-rust.
+// This file is part of ldr-rs.
 //
-// ldraw-rust is free software: you can redistribute it and/or
+// ldr-rs is free software: you can redistribute it and/or
 // modify it under the terms of the GNU General Public License as
 // published by the Free Software Foundation, either version 3 of the
 // License, or (at your option) any later version.

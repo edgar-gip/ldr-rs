@@ -1,9 +1,9 @@
-// ldraw-rust: LDraw models for Rust
+// ldr-rs: LDraw models for Rust
 // Copyright (C) 2017-2025  Edgar Gonzàlez i Pellicer
 //
-// This file is part of ldraw-rust.
+// This file is part of ldr-rs.
 //
-// ldraw-rust is free software: you can redistribute it and/or
+// ldr-rs is free software: you can redistribute it and/or
 // modify it under the terms of the GNU General Public License as
 // published by the Free Software Foundation, either version 3 of the
 // License, or (at your option) any later version.
@@ -16,7 +16,7 @@
 // You should have received a copy of the GNU General Public License
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
 
-//! Loading of LDraw files.
+//! Loading of LDR files.
 
 mod base;
 mod meta;
@@ -36,8 +36,8 @@ use self::base::ParseResult1;
 
 pub use self::base::{ParseError, ParseResult};
 
-/// Loads an LDraw file from a stream.
-pub fn load_ldraw(path: &Path) -> ParseResult<LDFile> {
+/// Loads an LDR file from a stream.
+pub fn load_ldr(path: &Path) -> ParseResult<LDRFile> {
     // Open the file and create a reader for it.
     let file = File::open(&path).map_err(|err: IoError| {
         vec![ParseError {
@@ -83,7 +83,7 @@ pub fn load_ldraw(path: &Path) -> ParseResult<LDFile> {
 
     // Return success if no errors were found, failure otherwise.
     if errors.is_empty() {
-        Ok(LDFile {
+        Ok(LDRFile {
             statements: statements,
         })
     } else {
@@ -91,7 +91,7 @@ pub fn load_ldraw(path: &Path) -> ParseResult<LDFile> {
     }
 }
 
-/// Processes a line of an LDraw file.
+/// Processes a line of an LDR file.
 fn process_line(path: &Path, line_number: u32, line: &String) -> ParseResult1<Option<Statement>> {
     // Split the line into fields.
     let fields: Vec<&str> = line

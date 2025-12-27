@@ -1,9 +1,9 @@
-// ldraw-rust: LDraw models for Rust
+// ldr-rs: LDraw models for Rust
 // Copyright (C) 2017-2025  Edgar Gonzàlez i Pellicer
 //
-// This file is part of ldraw-rust.
+// This file is part of ldr-rs.
 //
-// ldraw-rust is free software: you can redistribute it and/or
+// ldr-rs is free software: you can redistribute it and/or
 // modify it under the terms of the GNU General Public License as
 // published by the Free Software Foundation, either version 3 of the
 // License, or (at your option) any later version.
@@ -16,9 +16,9 @@
 // You should have received a copy of the GNU General Public License
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
 
-//! Dump the contents of an LDraw file.
+//! Dump the contents of an LDR file.
 
-extern crate ldraw;
+extern crate ldr_rs;
 
 use std::env;
 use std::io::{stderr, Write};
@@ -29,7 +29,7 @@ fn main() {
     assert!(args.len() == 2);
     let file_path: String = args.last().unwrap();
 
-    match ldraw::load_ldraw(&Path::new(&file_path)) {
+    match ldr_rs::load_ldr(&Path::new(&file_path)) {
         Err(parse_errors) => {
             for error in parse_errors {
                 writeln!(

@@ -1,9 +1,9 @@
-// ldraw-rust: LDraw models for Rust
+// ldr-rs: LDraw models for Rust
 // Copyright (C) 2017-2025  Edgar Gonzàlez i Pellicer
 //
-// This file is part of ldraw-rust.
+// This file is part of ldr-rs.
 //
-// ldraw-rust is free software: you can redistribute it and/or
+// ldr-rs is free software: you can redistribute it and/or
 // modify it under the terms of the GNU General Public License as
 // published by the Free Software Foundation, either version 3 of the
 // License, or (at your option) any later version.
@@ -16,24 +16,22 @@
 // You should have received a copy of the GNU General Public License
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
 
-//! Contents of LDraw files.
+//! Contents of LDR files.
 //!
 //! Following [LDraw.org][1] standards:
 //!
 //! * [File Format 1.0.2][2]
-//! * [List of Official META Commands][3]
-//! * [Official Library Header Specification][4]
-//! * [CATEGORY and KEYWORDS Language Extension][5]
-//! * [Language Extension for Back Face Culling (BFC)][6]
-//! * [MPD Language Extension[7]
+//! * [Official Library Header Specification][3]
+//! * [CATEGORY and KEYWORDS Language Extension][4]
+//! * [Language Extension for Back Face Culling (BFC)][5]
+//! * [MPD Language Extension][6]
 //!
-//! [1]: http://www.ldraw.org
-//! [2]: http://www.ldraw.org/article/218
-//! [3]: http://www.ldraw.org/article/401
-//! [4]: http://www.ldraw.org/article/398
-//! [5]: http://www.ldraw.org/article/340
-//! [6]: http://www.ldraw.org/article/415
-//! [7]: http://www.ldraw.org/article/47
+//! [1]: https://www.ldraw.org
+//! [2]: https://www.ldraw.org/article/218
+//! [3]: https://www.ldraw.org/article/398
+//! [4]: https://www.ldraw.org/article/340
+//! [5]: https://www.ldraw.org/article/415
+//! [6]: https://www.ldraw.org/article/47
 
 use std::path::PathBuf;
 
@@ -132,7 +130,7 @@ pub struct HistoryEntry {
     pub text: String,
 }
 
-/// LDraw meta directives.
+/// LDR meta directives.
 #[derive(Debug)]
 pub enum Meta {
     /// Author.
@@ -147,7 +145,7 @@ pub enum Meta {
     /// Clear the screen.
     Clear,
 
-    /// LDraw command-line arguments.
+    /// LDR command-line arguments.
     CmdLine(Vec<String>),
 
     /// Color declaration.
@@ -202,7 +200,7 @@ pub enum Meta {
     Unknown(String),
 }
 
-/// LDraw statement.
+/// LDR statement.
 #[derive(Debug)]
 pub enum Statement {
     Meta(Meta),
@@ -230,9 +228,9 @@ pub enum Statement {
     },
 }
 
-/// LDraw file.
+/// LDR file.
 #[derive(Debug)]
-pub struct LDFile {
+pub struct LDRFile {
     pub statements: Vec<Statement>,
 }
 

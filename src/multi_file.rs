@@ -1,9 +1,9 @@
-// ldraw-rust: LDraw models for Rust
+// ldr-rs: LDraw models for Rust
 // Copyright (C) 2017-2025  Edgar Gonzàlez i Pellicer
 //
-// This file is part of ldraw-rust.
+// This file is part of ldr-rs.
 //
-// ldraw-rust is free software: you can redistribute it and/or
+// ldr-rs is free software: you can redistribute it and/or
 // modify it under the terms of the GNU General Public License as
 // published by the Free Software Foundation, either version 3 of the
 // License, or (at your option) any later version.
@@ -16,7 +16,7 @@
 // You should have received a copy of the GNU General Public License
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
 
-//! Multi-part LDraw file.
+//! Multi-part LDR file.
 //!
 //! Following [LDraw.org][1] standards:
 //!
@@ -25,32 +25,32 @@
 //! [1]: http://www.ldraw.org
 //! [2]: http://www.ldraw.org/article/47
 
-use super::file::{LDFile, Meta, Statement};
+use super::file::{LDRFile, Meta, Statement};
 
 /// Part inside a multi-part file.
-pub struct LDMultiFilePart {
+pub struct LDRMultiFilePart {
     pub name: Option<String>,
     pub range_start: usize,
     pub range_end: usize,
 }
 
 /// Multi-part file.
-pub struct LDMultiFile {
-    pub file: LDFile,
-    pub main_part: LDMultiFilePart,
-    pub parts: Vec<LDMultiFilePart>,
+pub struct LDRMultiFile {
+    pub file: LDRFile,
+    pub main_part: LDRMultiFilePart,
+    pub parts: Vec<LDRMultiFilePart>,
 }
 
-impl LDMultiFile {
+impl LDRMultiFile {
     /// Creates a new multi-part file.
-    pub fn new(file: LDFile) -> Self {
+    pub fn new(file: LDRFile) -> Self {
         if file.statements.is_empty() {
-            let main_part = LDMultiFilePart {
+            let main_part = LDRMultiFilePart {
                 name: None,
                 range_start: 0,
                 range_end: file.statements.len(),
             };
-            LDMultiFile {
+            LDRMultiFile {
                 file: file,
                 main_part: main_part,
                 parts: Vec::new(),
@@ -62,7 +62,7 @@ impl LDMultiFile {
             for index in 1..file.statements.len() {
                 match &file.statements[index] {
                     Statement::Meta(Meta::File(name)) => {
-                        parts.push(LDMultiFilePart {
+                        parts.push(LDRMultiFilePart {
                             name: Some(part_name.to_ascii_lowercase()),
                             range_start: part_start,
                             range_end: index,
@@ -71,7 +71,7 @@ impl LDMultiFile {
                         part_start = index + 1;
                     }
                     Statement::Meta(Meta::NoFile) => {
-                        parts.push(LDMultiFilePart {
+                        parts.push(LDRMultiFilePart {
                             name: Some(part_name.to_ascii_lowercase()),
                             range_start: part_start,
                             range_end: index,
@@ -81,23 +81,23 @@ impl LDMultiFile {
                     _ => {}
                 }
             }
-            parts.push(LDMultiFilePart {
+            parts.push(LDRMultiFilePart {
                 name: Some(part_name.to_ascii_lowercase()),
                 range_start: part_start,
                 range_end: file.statements.len(),
             });
-            LDMultiFile {
+            LDRMultiFile {
                 file: file,
                 main_part: parts.remove(0),
                 parts: parts,
             }
         } else {
-            let main_part = LDMultiFilePart {
+            let main_part = LDRMultiFilePart {
                 name: None,
                 range_start: 0,
                 range_end: file.statements.len(),
             };
-            LDMultiFile {
+            LDRMultiFile {
                 file: file,
                 main_part: main_part,
                 parts: Vec::new(),
@@ -106,7 +106,7 @@ impl LDMultiFile {
     }
 
     /// Returns the part with the given name inside the multi-part file.
-    pub fn find_part(&self, name: &str) -> Option<&LDMultiFilePart> {
+    pub fn find_part(&self, name: &str) -> Option<&LDRMultiFilePart> {
         self.parts.iter().find(|part| {
             if let Some(part_name) = &part.name {
                 part_name == name
